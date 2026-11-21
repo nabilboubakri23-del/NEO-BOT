@@ -21,3 +21,6 @@ export const resolveUserTarget = async (sock, message, arg) => {
 };
 
 export const describeTarget = (t) => [t.number && `+${t.number}`, t.lid && `LID ${t.lid}`].filter(Boolean).join('  ') || 'unknown';
+
+/** True when the first argument named the target itself (a number or "@mention"), so the rest are other args. */
+export const isTargetArg = (arg) => /\d{6,}/.test(String(arg || '')) || String(arg || '').startsWith('@');

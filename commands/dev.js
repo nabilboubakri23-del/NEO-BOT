@@ -7,6 +7,7 @@ import { sendButtons, sendListMenu } from '../systems/menus/interactiveMenu.js';
 import * as ws from '../systems/devtools/workspace.js';
 import { checkCommandModule, checkSyntax, isValidCommandName } from '../systems/devtools/codeValidator.js';
 import { readCode } from '../systems/devtools/codeInput.js';
+import { rankBadge } from '../systems/permissions/permissions.js';
 import { box } from '../utils/formatter.js';
 import { describeError } from '../utils/errors.js';
 
@@ -111,11 +112,14 @@ export default {
     description: 'Describe what ${name} does.',
     usage: '<text>',
     examples: ['hello'],
-    permissions: ['public'], // owner | mainOwner | admin | botAdmin | group | private
+    permission: 'public', // minimum rank: public | premium | vip | moderator | owner | creator
+    // scope: 'group',     // optional: 'group' | 'private'
+    // requires: ['groupAdmin'], // optional: 'groupAdmin' | 'botAdmin'
     cooldown: 3, // seconds
     minArgs: 0, // fewer args → usage reply
 
     // ctx: { args, flags, argsText, body, prefix, usedName, access }
+    // ctx.access.rank → { name, level, emoji, label }   ctx.access.atLeast('vip') → true/false
     async execute(sock, message, args, ctx) {
         // throw new UsageError()           → shows the usage above
         // throw new UserError('Not found') → clean error message
@@ -177,7 +181,8 @@ const actions = {
         for (const [name, cmd] of commandHandler.commands) {
             const cat = (cmd.category || 'general').toUpperCase();
             if (!byCategory.has(cat)) byCategory.set(cat, []);
-            const perms = (cmd.permissions || ['user']).includes('owner') ? ' 🔒' : '';
+            const badge = rankBadge(cmd);
+            const perms = badge ? ` ${badge}` : '';
             const aliases = cmd.aliases?.length ? ` (${cmd.aliases.join(', ')})` : '';
             byCategory.get(cat).push(`• ${P}${name}${aliases}${perms}`, `   ${commandHandler.files.get(name)}`);
         }
@@ -458,7 +463,7 @@ export default {
     aliases: ['devtools', 'console'],
     category: 'owner',
     description: 'Remote developer console: browse, read, add, edit and delete code from WhatsApp.',
-    permissions: ['owner'],
+    permission: 'owner',
     enabled: config.devtools.enabled,
 
     async execute(sock, message) {

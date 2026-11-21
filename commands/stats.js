@@ -12,6 +12,7 @@ export default {
     aliases: ['status', 'info', 'botinfo'],
     category: 'system',
     description: 'Bot status, usage statistics and top commands.',
+    permission: 'public',
     cooldown: 5,
 
     async execute(sock, message) {

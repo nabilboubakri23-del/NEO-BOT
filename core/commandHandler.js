@@ -8,8 +8,11 @@ import { parseCommand, suggest } from './commandParser.js';
 import { box, usage } from '../utils/formatter.js';
 import { describeError, UsageError } from '../utils/errors.js';
 import { isOwner } from '../systems/owners/ownerStore.js';
-import { checkPermissions, createAccess, isOwnerOnly, LEVELS, requirementsOf } from '../systems/permissions/permissions.js';
+import { canSee, checkPermissions, createAccess, validateAccessFields } from '../systems/permissions/permissions.js';
 import { checkPolicy } from '../systems/permissions/policy.js';
+import { cooldownFor, dailyLimitFor, isRateExempt } from '../systems/permissions/perks.js';
+import { consumeDaily } from '../systems/permissions/dailyLimit.js';
+import { badge } from '../systems/permissions/ranks.js';
 import { checkCooldown, checkSpam } from '../systems/security/rateLimiter.js';
 import { getSetting } from '../systems/settings/settingsStore.js';
 import { trackMessage } from '../systems/users/userStore.js';
@@ -31,7 +34,10 @@ const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
  *   description: 'Measure response time.',
  *   usage: '<number> [reason]',          shown by .help and on wrong usage
  *   examples: ['212600000000 spam'],
- *   permissions: ['group', 'admin'],     see systems/permissions/permissions.js
+ *   permission: 'premium',              minimum rank: creator | owner | moderator | vip | premium | user | public
+ *   scope: 'group',                     optional: 'group' | 'private'
+ *   requires: ['groupAdmin'],           optional: 'groupAdmin' | 'botAdmin'
+ *                                       (see systems/permissions/permissions.js and ranks.js)
  *   cooldown: 5,                        seconds; default from settings
  *   minArgs: 1,                         fewer args → usage reply
  *   hidden: false,                      hide from .help / .menu
@@ -42,7 +48,8 @@ const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
  *   async execute(sock, message, args, ctx)
  * }
  *
- * Pipeline: parse → find → policy → permissions → args → anti-spam → cooldown → run → errors/stats.
+ * Pipeline: parse → find → policy → anti-spam → permission (override / lock / allow / deny / rank)
+ *           → scope → requires → daily limit → cooldown (scaled by rank) → plugin veto → run → errors/stats.
  */
 class CommandHandler {
     constructor() {
@@ -67,9 +74,7 @@ class CommandHandler {
         if (typeof mod.name !== 'string' || !NAME_RE.test(mod.name.toLowerCase())) problems.push('Invalid or missing name.');
         if (typeof mod.execute !== 'function') problems.push('Missing execute().');
         if (mod.aliases !== undefined && !Array.isArray(mod.aliases)) problems.push('aliases must be an array.');
-        const perms = mod.permissions === undefined ? [] : Array.isArray(mod.permissions) ? mod.permissions : [mod.permissions];
-        const unknown = perms.filter((p) => !LEVELS.includes(p));
-        if (unknown.length) problems.push(`Unknown permissions: ${unknown.join(', ')}.`);
+        problems.push(...validateAccessFields(mod));
         if (mod.cooldown !== undefined && !(Number.isFinite(mod.cooldown) && mod.cooldown >= 0)) problems.push('cooldown must be seconds (>= 0).');
         if (mod.minArgs !== undefined && !(Number.isInteger(mod.minArgs) && mod.minArgs >= 0)) problems.push('minArgs must be a whole number.');
         return problems;
@@ -167,9 +172,9 @@ class CommandHandler {
         return this.commands.get(key) || this.commands.get(this.aliases.get(key));
     }
 
-    /** Commands the sender may see (owner-only ones hidden from others). */
-    visible({ isOwner: owner = false } = {}) {
-        return [...this.commands.values()].filter((c) => !c.hidden && (owner || !isOwnerOnly(c)));
+    /** Commands the sender may use by rank (hidden, locked and denied ones left out). */
+    visible(access) {
+        return [...this.commands.values()].filter((c) => canSee(c, access));
     }
 
     /** Map category → commands, for help and menus. */
@@ -249,28 +254,41 @@ class CommandHandler {
             return;
         }
 
+        const userKey = message.senderNumber || message.senderLid || message.sender;
+        const exempt = access.isCreator || isRateExempt(access.rank);
+
+        // Anti-spam first, so even "access denied" answers can never be used to flood a chat.
+        if (!exempt && getSetting('antiSpam')) {
+            const spam = checkSpam(userKey, getSetting('spamLimit'));
+            if (!spam.ok) {
+                if (spam.notify) await message.reply(box(config.bot.name, ['🚫 Too many commands.', `You are muted for ${Math.ceil(spam.remainingMs / 1000)}s.`])).catch(() => {});
+                return;
+            }
+        }
+
         const permission = await checkPermissions(command, message, access);
         if (!permission.ok) {
-            log.warn({ command: command.name, requirement: permission.requirement }, 'Permission denied.');
+            log.warn({ command: command.name, requirement: permission.requirement, rank: access.rank.name }, 'Permission denied.');
+            if (permission.silent) return;
             return message.reply(box(config.bot.name, ['⛔ Access denied.', permission.reason])).catch(() => {});
         }
 
-        const userKey = message.senderNumber || message.senderLid || message.sender;
-        if (!access.isOwner) {
-            if (getSetting('antiSpam')) {
-                const spam = checkSpam(userKey, getSetting('spamLimit'));
-                if (!spam.ok) {
-                    if (spam.notify) await message.reply(box(config.bot.name, ['🚫 Too many commands.', `You are muted for ${Math.ceil(spam.remainingMs / 1000)}s.`])).catch(() => {});
-                    return;
-                }
+        if (!access.isCreator && ctx.source === 'text') {
+            const seconds = cooldownFor(command, access.rank);
+            const cd = checkCooldown(userKey, command.name, seconds);
+            if (!cd.ok) {
+                if (cd.notify) await message.reply(box(config.bot.name, [`⏳ Please wait ${Math.ceil(cd.remainingMs / 1000)}s`, `before using ${this.prefix}${command.name} again.`])).catch(() => {});
+                return;
             }
-            if (ctx.source === 'text') {
-                const seconds = command.cooldown ?? getSetting('cooldown');
-                const cd = checkCooldown(userKey, command.name, seconds);
-                if (!cd.ok) {
-                    if (cd.notify) await message.reply(box(config.bot.name, [`⏳ Please wait ${Math.ceil(cd.remainingMs / 1000)}s`, `before using ${this.prefix}${command.name} again.`])).catch(() => {});
-                    return;
+            const limit = dailyLimitFor(access.rank);
+            const daily = consumeDaily(userKey, limit);
+            if (!daily.ok) {
+                if (daily.notify) {
+                    await message
+                        .reply(box(config.bot.name, [`📊 Daily limit reached (${limit} commands).`, 'It resets at 00:00 UTC.', `${badge('premium')} and above have no limit.`]))
+                        .catch(() => {});
                 }
+                return;
             }
         }
 
@@ -321,6 +339,6 @@ class CommandHandler {
     }
 }
 
-export { CommandHandler, requirementsOf };
+export { CommandHandler };
 const commandHandler = new CommandHandler();
 export default commandHandler;

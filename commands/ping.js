@@ -7,7 +7,7 @@ export default {
     aliases: [],
     category: 'system',
     description: 'Measure bot response time.',
-    permissions: ['user'],
+    permission: 'public',
 
     async execute(sock, message) {
         const status = connectionManager.isOpen ? 'Online' : 'Reconnecting';

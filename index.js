@@ -16,6 +16,7 @@ import { loadSettings } from './systems/settings/settingsStore.js';
 import { loadUsers } from './systems/users/userStore.js';
 import { loadStats } from './systems/stats/statsStore.js';
 import pluginManager from './systems/plugins/pluginManager.js';
+import { loadPermissions } from './systems/permissions/index.js';
 
 const log = logger.child({ module: 'main' });
 
@@ -53,7 +54,7 @@ const main = async () => {
     assertEncryptionReady();
     loadOwners();
     await docStore.init();
-    await Promise.all([loadSettings(), loadUsers(), loadStats()]);
+    await Promise.all([loadSettings(), loadUsers(), loadStats(), loadPermissions()]);
     pluginManager.attach(commandHandler);
     await pluginManager.load(); // also (re)loads commands, merging plugin commands in
     startSetupServer();

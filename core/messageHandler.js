@@ -12,6 +12,7 @@ import commandHandler from './commandHandler.js';
 import { child } from './logger.js';
 import { describeError } from '../utils/errors.js';
 import { isOwner, learnIdentity } from '../systems/owners/ownerStore.js';
+import { learnRankIdentity } from '../systems/permissions/rankStore.js';
 import { isDuplicate, isOwnMessage, rememberOwnMessage } from '../systems/security/dedupe.js';
 import { getSetting } from '../systems/settings/settingsStore.js';
 import { trackMessage } from '../systems/users/userStore.js';
@@ -151,6 +152,7 @@ export const handleUpsert = async (sock, { messages, type }) => {
             if (!message) continue;
             await resolvePhoneNumber(sock, message);
             if (!message.fromMe && isOwner(message)) await learnIdentity(message).catch(() => {});
+            if (!message.fromMe) learnRankIdentity(message);
 
             countMessage();
             if (!message.fromMe && getSetting('autoRead')) sock.readMessages?.([raw.key]).catch(() => {});

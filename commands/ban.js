@@ -1,14 +1,14 @@
 import config from '../config/config.js';
 import { child } from '../core/logger.js';
-import { isOwner } from '../systems/owners/ownerStore.js';
-import { listBanned, setBanned } from '../systems/users/userStore.js';
+import { banUser, unbanUser } from '../systems/permissions/rankService.js';
+import { listBanned } from '../systems/users/userStore.js';
 import { box, success } from '../utils/formatter.js';
-import { UsageError, UserError } from '../utils/errors.js';
-import { describeTarget, resolveUserTarget } from '../utils/targets.js';
+import { UsageError } from '../utils/errors.js';
+import { describeTarget, isTargetArg, resolveUserTarget } from '../utils/targets.js';
 
 /**
- * .ban / .unban / .banlist — banned users are ignored by the bot everywhere.
- * The alias used decides the action.
+ * .ban / .unban / .banlist — banned users (🚫 Banned rank) are ignored by the bot everywhere.
+ * The alias used decides the action. You can only ban someone below your own rank.
  */
 
 const log = child('users');
@@ -21,7 +21,7 @@ export default {
     description: 'Ban or unban a user from the bot.',
     usage: '<number|@mention|reply> [reason]',
     examples: ['212600000000 spam', '@user'],
-    permissions: ['owner'],
+    permission: 'moderator',
 
     async execute(sock, message, args, ctx) {
         const action = ctx.usedName === 'unban' ? 'unban' : ['banlist', 'bans'].includes(ctx.usedName) ? 'list' : 'ban';
@@ -35,10 +35,10 @@ export default {
 
         const target = await resolveUserTarget(sock, message, args[0]);
         if (!target) throw new UsageError('Who? Give a number, a @mention, or reply to their message.');
-        if (action === 'ban' && isOwner({ senderNumber: target.number, senderLid: target.lid })) throw new UserError('Owners cannot be banned.');
 
-        const reasonArgs = /\d{6,}/.test(args[0] || '') || args[0]?.startsWith('@') ? args.slice(1) : args;
-        const user = setBanned(target, action === 'ban', reasonArgs.join(' '));
+        const actor = { rank: ctx.access.rank, person: message };
+        const reason = (isTargetArg(args[0]) ? args.slice(1) : args).join(' ');
+        const user = action === 'ban' ? banUser(actor, target, reason) : unbanUser(actor, target);
         log.warn({ action, target: describeTarget(target) }, 'Ban list changed.');
         await message.reply(
             success(action === 'ban' ? 'USER BANNED' : 'USER UNBANNED', [

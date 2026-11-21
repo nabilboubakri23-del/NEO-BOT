@@ -110,5 +110,7 @@ test('devtools: command validator accepts good code and rejects bad code', async
     assert.equal(good.command.name, 'zz');
     assert.equal((await checkCommandModule(target, 'export default { name: ')).ok, false);
     assert.equal((await checkCommandModule(target, "export default { name: 'zz' };")).ok, false);
+    assert.equal((await checkCommandModule(target, "export default { name: 'zz', permission: 'god', async execute() {} };")).ok, false);
+    assert.equal((await checkCommandModule(target, "export default { name: 'zz', permission: 'vip', async execute() {} };")).command.permission, 'vip');
     assert.equal((await readdir(path.dirname(target))).some((f) => f.startsWith('.staging-')), false);
 });

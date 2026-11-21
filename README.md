@@ -1,4 +1,4 @@
-# NEO BOT — V1.2.0 (Plugin System)
+# NEO BOT — V1.3.0 (Permission System)
 
 Modular WhatsApp bot. Phase 1: connection, dual authentication, encrypted sessions,
 auto-reconnect, message handling, real interactive list menu, `.menu` and `.ping`.
@@ -43,20 +43,72 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 ## Commands
 | Command | Access | Description |
 |---|---|---|
-| `.menu [category]` | everyone | Multi-level interactive menu built from the registered commands (category → commands → BACK). |
-| `.help [command]` | everyone | Generated help; `.help ping` shows usage, aliases, access and cooldown. |
-| `.ping` | everyone | Round-trip time + connection status. |
-| `.stats` | everyone | Uptime, usage counters, top commands, server info. |
-| `.myid` | everyone | Your number, LID and owner status. |
+| `.menu [category]` | 👤 everyone | Multi-level interactive menu; shows only the commands you can use, with rank badges. |
+| `.help [command]` | 👤 everyone | Generated help; `.help ping` shows usage, aliases, permission and your cooldown. |
+| `.ping` | 👤 everyone | Round-trip time + connection status. |
+| `.stats` | 👤 everyone | Uptime, usage counters, top commands, server info. |
+| `.myid` | 👤 everyone | Your number, LID and rank. |
+| `.rank` / `.myrank` | 👤 everyone | Your rank, level, perks, expiry and the commands it unlocks. `.rank list` · `.rank who <rank>` |
+| `.rank set <user> <rank> [7d\|12h\|30m] [reason]` · `.rank del <user>` · `.rank info <user>` | 🛡️ moderator+ | Grant / remove ranks strictly below your own (temporary ranks supported). |
+| `.premium <user> <duration>` | 🛡️ moderator+ | Shortcut for `.rank set <user> premium <duration>`. |
+| `.rank log [n]` | 👑 owner+ | Audit log of rank, permission, ban and owner changes. |
+| `.perm list` · `.perm show <cmd>` | 👑 owner+ | Runtime permission changes. |
+| `.perm set <cmd> <rank>` · `reset` · `lock` · `unlock` · `allow <user> <cmd>` · `deny <user> <cmd>` · `clear <user> <cmd>` | 🔱 creator | Change who may use a command without editing code. |
 | `.bot on/off/status` | group admins | Switch the bot off in one chat. |
-| `.settings [set/reset/info]` | owners | Change bot settings from WhatsApp. |
-| `.ban / .unban / .banlist` | owners | Banned users are ignored everywhere. |
-| `.owner` | owners | Manage owners (data/owners.json). |
-| `.dev` | owners | Remote developer console. |
-| `.kick / .promote / .demote` | group admins (bot must be admin) | Manage one member. |
+| `.settings [set/reset/info]` | 👑 owner+ | Change bot settings from WhatsApp. |
+| `.ban / .unban / .banlist` | 🛡️ moderator+ | Banned users are ignored everywhere (only users below your rank). |
+| `.owner` | 👑 owner+ (add/del: 🔱 creator) | Manage owners (data/owners.json); `.owner claim` on first setup. |
+| `.dev` | 👑 owner+ | Remote developer console. |
+| `.kick / .promote / .demote` | group admins (bot must be admin) | Manage one member; ranked members are protected from lower ranks. |
 | `.tagall [message]` | group admins | Mention every member. |
 | `.welcome on/off` | group admins | Join/leave greetings (from the `welcome` plugin). |
-| `.plugins [info/enable/disable/install/remove/reload]` | owners | Manage plugins. |
+| `.plugins [info/enable/disable/install/remove/reload]` | 👑 owner+ | Manage plugins. |
+
+## Permission System (v1.3.0)
+
+One person is on top: the **creator** (the main owner) has every permission. Every other
+person has exactly one rank; a higher rank always has all the permissions of the lower ones.
+
+| Rank | Level | Who | Cooldowns | Commands / day |
+|---|---|---|---|---|
+| 🔱 Creator | 100 | The main owner (`data/owners.json`, `MAIN_OWNER`, `OWNER_NUMBERS`) and the linked account. Bypasses policy, bans, cooldowns, limits, locks and denies. | none | unlimited |
+| 👑 Owner | 80 | Co-owners (the `admins` list in `data/owners.json`, migrated automatically). | none | unlimited |
+| 🛡️ Moderator | 60 | Granted with `.rank set`. Can ban and grant VIP / Premium. | none | unlimited |
+| 🌟 VIP | 40 | Granted. | 25 % | unlimited |
+| 💎 Premium | 30 | Granted (often temporary: `.premium <user> 30d`). | 50 % | unlimited |
+| 👤 User | 10 | Everyone else (`public` is an alias). | normal | `dailyLimit` setting (default 100, 0 = unlimited) |
+| 🚫 Banned | 0 | `.ban` — ignored by the bot. | – | 0 |
+
+**One field per command** — the minimum rank:
+
+```js
+export default {
+    name: 'imagine',
+    permission: 'premium',            // creator | owner | moderator | vip | premium | user | public
+    scope: 'group',                   // optional: 'group' | 'private'
+    requires: ['groupAdmin'],         // optional: 'groupAdmin' | 'botAdmin'
+    async execute(sock, message, args, ctx) {
+        ctx.access.rank;              // { name, level, emoji, label, perks, expiresAt }
+        ctx.access.atLeast('vip');    // true / false
+        ctx.access.isCreator;
+    }
+};
+```
+
+- Unknown rank names are rejected when the command loads (fail closed). The old `permissions: [...]` arrays still work
+  (`owner` → owner, `mainOwner` → creator, `admin` → requires groupAdmin, `botAdmin` → requires botAdmin, `group` / `private` → scope).
+- **Rules:** rank management needs 🛡️ Moderator; you only grant or revoke ranks strictly below your own, to people below you;
+  only the creator grants 👑 Owner; nobody can target the creator. Kick / demote through the bot cannot hit a ranked member of equal or higher rank.
+- **Temporary ranks:** `.rank set <user> vip 7d` — expired ranks fall back to 👤 User automatically.
+- **Runtime overrides (creator):** `.perm set ping premium`, `.perm lock dev` (creator only), `.perm allow|deny <user> <cmd>`
+  (deny always wins), `.perm reset <cmd>`. Overrides win over the file default.
+- **Pipeline:** policy → anti-spam → deny / lock / rank (override, allow) → scope → requires → daily limit → cooldown × rank multiplier → run.
+  A denial says what is needed: `⛔ Requires 💎 Premium. Your rank: 👤 User.` (locked commands stay silent for non-owners).
+- **Audit log:** last 200 rank, permission, ban and owner changes (`.rank log`).
+- **Plugins:** `api.ranks.of(message)` and `api.ranks.atLeast(message, 'vip')`; plugin commands use the same `permission` field.
+- **Storage** (MongoDB `documents` or `data/*.json`): `ranks`, `commandPerms`, `usage`, `audit`. Creator and owners stay in `data/owners.json`, bans on the user record: one source of truth each.
+- Code: `systems/permissions/` — `ranks.js` (hierarchy), `resolveRank.js`, `rankRules.js`, `rankService.js`, `rankStore.js`,
+  `commandOverrides.js`, `perks.js`, `dailyLimit.js`, `auditLog.js`, `permissions.js` (checks), `policy.js`.
 
 ## Plugin System (v1.2.0)
 - **Event bus** (`core/events.js`): the core emits `message`, `command:before` (can veto), `command:after`,
@@ -76,7 +128,7 @@ export default {
     name: 'hello',
     version: '1.0.0',
     description: 'Says hi when someone writes "hi".',
-    commands: [{ name: 'hi', description: 'Say hi.', async execute(sock, m) { await m.reply('Hi!'); } }],
+    commands: [{ name: 'hi', description: 'Say hi.', permission: 'public', async execute(sock, m) { await m.reply('Hi!'); } }],
     hooks: {
         async message({ message }, api) {
             if (message.text.toLowerCase() === 'hi') await message.reply('Hello 👋');
@@ -89,8 +141,7 @@ export default {
 - **Command Engine V2** (`core/commandHandler.js`, `core/commandParser.js`): quoted args, `--flags`, multi-line body,
   definition validation on load, alias conflict protection, atomic reload, "did you mean" suggestions,
   `usage` / `examples` / `minArgs` / `cooldown` / `hidden` / `allowWhenOff` fields, `ctx` as 4th argument.
-- **Permissions** (`systems/permissions/`): `public`, `owner`, `mainOwner`, `admin` (group admin), `botAdmin`,
-  `group`, `private`, combined with AND. Group metadata is cached (`systems/groups/groupCache.js`) and reused by the socket.
+- **Permissions** (`systems/permissions/`): replaced by ranks in v1.3.0 (see above). Group metadata is cached (`systems/groups/groupCache.js`) and reused by the socket.
 - **Policy**: bot mode (`public | private | groups | inbox`), per-chat on/off, bans. Owners always pass.
 - **Anti-spam + cooldowns** (`systems/security/rateLimiter.js`): each limit is announced once, then silent.
 - **Anti-duplicate** (`systems/security/dedupe.js`).
@@ -108,7 +159,7 @@ export default {
     usage: '<text>',
     minArgs: 1,
     cooldown: 3,
-    permissions: ['public'],
+    permission: 'public',
     async execute(sock, message, args, ctx) {
         await message.reply(ctx.argsText);
     }
@@ -127,7 +178,7 @@ core/sessionManager.js     encrypted Baileys auth-state adapter
 core/messageHandler.js     messages.upsert → filter → route
 core/commandHandler.js     command engine V2 (pipeline, errors, interactions)
 core/commandParser.js      args / flags / suggestions
-systems/permissions/       permission levels + bot policy
+systems/permissions/       ranks, rank store, overrides, perks, audit log, policy
 systems/security/          encryption, dedupe, rate limiter
 systems/settings/ users/ stats/ database/ groups/
 core/logger.js             pino with redaction
@@ -135,7 +186,7 @@ systems/security/encryption.js
 systems/menus/interactiveMenu.js
 commands/menu.js, commands/ping.js
 utils/                     formatter, validators, errors
-tests/offline.test.js      npm test
+tests/*.test.js            npm test
 ```
 
 ## Notes
@@ -171,7 +222,7 @@ Note: 750 free instance hours per month cover one service running all month.
 
 ## Remote developer console (`.dev`)
 
-Owner-only (the linked account itself, or numbers in `OWNER_NUMBERS`). Disable with `DEVTOOLS_ENABLED=false`.
+👑 Owner rank and above by default (change it with `.perm set dev <rank>` or `.perm lock dev`). Disable with `DEVTOOLS_ENABLED=false`.
 
 | Command | What it does |
 | --- | --- |
@@ -188,7 +239,7 @@ Code goes on the lines under the command, in a `.js` file sent with the command 
 
 ## Owners (`data/owners.json`)
 
-Owners are kept in `data/owners.json` (git-ignored, created by the bot). The main owner and every listed owner get full owner permissions; only the main owner adds or removes owners.
+Owners are kept in `data/owners.json` (git-ignored, created by the bot). The main owner is the 🔱 Creator; every listed owner has the 👑 Owner rank. Only the creator adds or removes owners (`.owner add` or `.rank set <user> owner`).
 
 - First run: the terminal prints `.owner claim <code>`. Send it from your own WhatsApp to become the main owner.
 - `.owner` lists owners · `.owner add <number|@mention|reply>` · `.owner del <number|@mention>` · `.owner reload` re-reads the file after a manual edit.

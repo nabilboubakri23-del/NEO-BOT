@@ -25,7 +25,7 @@ export default {
     description: 'View and change bot settings without editing code.',
     usage: '[set <key> <value> | reset <key|all> | info <key>]',
     examples: ['', 'set mode groups', 'set cooldown 5', 'reset all'],
-    permissions: ['owner'],
+    permission: 'owner',
 
     async execute(sock, message, args, ctx) {
         let [sub, key, ...rest] = args;

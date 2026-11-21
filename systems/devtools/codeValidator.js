@@ -4,6 +4,8 @@ import { rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+import { accessSpec, validateAccessFields } from '../permissions/permissions.js';
+import { RANKS } from '../permissions/ranks.js';
 
 const run = promisify(execFile);
 
@@ -55,7 +57,7 @@ export const checkSyntax = async (targetAbsolute, code) => {
 
 /**
  * Imports a command module from a staged copy and checks its shape.
- * Returns { ok, error, command } where command = { name, aliases, category, permissions }.
+ * Returns { ok, error, command } where command = { name, aliases, category, permission }.
  */
 export const checkCommandModule = async (targetAbsolute, code) => {
     const syntax = await checkSyntax(targetAbsolute, code);
@@ -69,13 +71,15 @@ export const checkCommandModule = async (targetAbsolute, code) => {
         if (typeof mod.execute !== 'function') return { ok: false, error: 'Missing "async execute(sock, message, args)".' };
         if (mod.aliases && !Array.isArray(mod.aliases)) return { ok: false, error: '"aliases" must be an array.' };
         if (mod.permissions && !Array.isArray(mod.permissions)) return { ok: false, error: '"permissions" must be an array.' };
+        const accessProblems = validateAccessFields(mod);
+        if (accessProblems.length) return { ok: false, error: `${accessProblems.join(' ')}\nUse one field, e.g. permission: 'premium' (${RANKS.filter((r) => r.name !== 'banned').map((r) => r.name).join(' | ')} | public).` };
         return {
             ok: true,
             command: {
                 name: mod.name.toLowerCase(),
                 aliases: (mod.aliases || []).map((a) => String(a).toLowerCase()),
                 category: mod.category || 'general',
-                permissions: mod.permissions || ['user']
+                permission: accessSpec(mod).rank
             }
         };
     } catch (error) {

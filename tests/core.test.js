@@ -77,7 +77,8 @@ const lastText = (sock) => sock.sent.at(-1)?.content?.text || '';
 
 before(async () => {
     await docStore.init(new MemoryBackend());
-    await Promise.all([settings.loadSettings(), users.loadUsers(), loadStats()]);
+    const { loadPermissions } = await import('../systems/permissions/index.js');
+    await Promise.all([settings.loadSettings(), users.loadUsers(), loadStats(), loadPermissions()]);
     const { loadOwners } = await import('../systems/owners/ownerStore.js');
     loadOwners();
     await commandHandler.load();
@@ -141,14 +142,14 @@ test('settings: typed values only', () => {
     assert.equal(settings.getSetting('cooldown'), 3);
 });
 
-test('permissions: group / admin / botAdmin / owner', async () => {
+test('permissions (legacy array): group / admin / botAdmin / owner', async () => {
     const sock = fakeSock({ admins: ['212611111111'] });
     const groupCmd = { name: 'kick', permissions: ['group', 'admin', 'botAdmin'] };
     invalidateGroup(GROUP);
 
     const member = msg(sock, '.kick', { group: true });
     let r = await checkPermissions(groupCmd, member, createAccess(sock, member));
-    assert.equal(r.requirement, 'admin');
+    assert.equal(r.requirement, 'groupAdmin');
 
     const admin = msg(sock, '.kick', { group: true, number: '212611111111' });
     r = await checkPermissions(groupCmd, admin, createAccess(sock, admin));
@@ -181,12 +182,13 @@ test('pipeline: help, unknown command suggestion, usage errors, owner gate', asy
 
     await commandHandler.handleCommand(sock, msg(sock, '.settings', { number: '212633333333' }));
     assert.match(lastText(sock), /Access denied/);
+    assert.match(lastText(sock), /Requires 👑 Owner\. Your rank: 👤 User\./);
 
     await commandHandler.handleCommand(sock, msg(sock, '.bot', { number: OWNER }));
     assert.match(lastText(sock), /USAGE/);
 
     await commandHandler.handleCommand(sock, msg(sock, '.help ping', { number: '212644444444' }));
-    assert.match(lastText(sock), /Cooldown/);
+    assert.match(lastText(sock), /Permission: 👤 User/);
 });
 
 test('pipeline: ban, chat off, mode private', async () => {

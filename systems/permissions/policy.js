@@ -1,15 +1,15 @@
 import { getChatSetting, getSetting } from '../settings/settingsStore.js';
-import { isBanned } from '../users/userStore.js';
 
 /**
  * Who the bot answers at all, before any command permission is checked.
- * Owners always pass. Order: banned → bot mode → chat switched off.
+ * Owners and the creator always pass. Order: banned → bot mode → chat switched off.
+ * The banned state comes from the sender's rank (access.rank), so there is one source of truth.
  *
  * @returns {{ ok: true } | { ok: false, reason: string, silent: boolean }}
  */
 export const checkPolicy = (message, access, command = null) => {
     if (access.isOwner) return { ok: true };
-    if (isBanned(message)) return { ok: false, reason: 'banned', silent: true };
+    if (access.rank?.name === 'banned') return { ok: false, reason: 'banned', silent: true };
 
     const mode = getSetting('mode');
     if (mode === 'private') return { ok: false, reason: 'mode:private', silent: true };

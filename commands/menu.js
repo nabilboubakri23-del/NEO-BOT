@@ -3,7 +3,8 @@ import connectionManager from '../core/connection.js';
 import commandHandler from '../core/commandHandler.js';
 import { sendButtons, sendListMenu } from '../systems/menus/interactiveMenu.js';
 import { CATEGORIES, categoryOf, findCategory } from '../systems/menus/menuLayout.js';
-import { requirementsOf } from '../systems/permissions/permissions.js';
+import { accessSpec, effectiveRank, rankBadge } from '../systems/permissions/permissions.js';
+import { levelOf } from '../systems/permissions/ranks.js';
 import { box, formatDuration } from '../utils/formatter.js';
 import { getOwners } from '../systems/owners/ownerStore.js';
 
@@ -27,11 +28,17 @@ const grouped = (access) => {
     return map;
 };
 
-const shown = (access) => CATEGORIES.filter((c) => !c.ownerOnly || access.isOwner);
+/**
+ * Owner-only categories show for owners, and for anyone who unlocked one of their
+ * commands by rank (e.g. a moderator and .ban). Commands open to everyone there
+ * (".owner claim") do not make the panel appear for plain users.
+ */
+const shown = (access, groups = grouped(access)) =>
+    CATEGORIES.filter((c) => !c.ownerOnly || access.isOwner || groups.get(c.key).some((cmd) => levelOf(effectiveRank(cmd).rank) > levelOf('user')));
 
 const sendMain = async (sock, message, ctx) => {
     const groups = grouped(ctx.access);
-    const categories = shown(ctx.access);
+    const categories = shown(ctx.access, groups);
     const sections = [];
     for (const category of categories) {
         let section = sections.find((s) => s.title === category.section);
@@ -43,7 +50,8 @@ const sendMain = async (sock, message, ctx) => {
             description: count ? `${count} command${count > 1 ? 's' : ''} · ${category.description}` : `Coming soon · ${category.description}`
         });
     }
-    const body = box(BOT, [`Hello ${message.pushName || 'there'} 👋`, '', footer, `Version: ${version}`, 'Status: Online', '', 'Tap ORDERS and pick a category.']);
+    const rank = ctx.access.rank;
+    const body = box(BOT, [`Hello ${message.pushName || 'there'} 👋`, '', footer, `Version: ${version}`, `Your rank: ${rank.emoji} ${rank.label}`, 'Status: Online', '', 'Tap ORDERS and pick a category.']);
 
     await sendListMenu(sock, message.chat, { title: BOT, body, footer, buttonText: 'ORDERS', sections }, {
         quoted: message.raw,
@@ -53,14 +61,15 @@ const sendMain = async (sock, message, ctx) => {
 
 const sendCategory = async (sock, message, ctx, key) => {
     const category = findCategory(key);
-    if (!category || (category.ownerOnly && !ctx.access.isOwner)) return sendMain(sock, message, ctx);
-    const commands = grouped(ctx.access).get(category.key);
+    const groups = grouped(ctx.access);
+    if (!category || !shown(ctx.access, groups).includes(category)) return sendMain(sock, message, ctx);
+    const commands = groups.get(category.key);
 
     const rows = commands.map((c) => ({
         // Commands that need arguments open their help card instead of running empty.
         id: c.minArgs ? `help:cmd:${c.name}` : `${P}${c.name}`,
-        title: `${P}${c.name}`,
-        description: (c.description || '').slice(0, 70) + (requirementsOf(c).includes('admin') ? ' (admins)' : '')
+        title: `${P}${c.name}${rankBadge(c) ? ` ${rankBadge(c)}` : ''}`,
+        description: (c.description || '').slice(0, 70) + (accessSpec(c).requires.includes('groupAdmin') ? ' (admins)' : '')
     }));
     const body = box(category.title, [
         category.description,
@@ -125,6 +134,7 @@ export default {
     description: 'Interactive menu with every category and command.',
     usage: '[category]',
     examples: ['', 'system', 'panel'],
+    permission: 'public',
     cooldown: 2,
 
     onSelect: (sock, message, parts, ctx) => route(sock, message, ctx, parts),

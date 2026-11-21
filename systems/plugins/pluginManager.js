@@ -7,6 +7,8 @@ import { child } from '../../core/logger.js';
 import events from '../../core/events.js';
 import docStore from '../database/docStore.js';
 import { describeError } from '../../utils/errors.js';
+import { resolveRank } from '../permissions/resolveRank.js';
+import { atLeast } from '../permissions/ranks.js';
 
 const log = child('plugins');
 const NAME = 'plugins'; // document storing which plugins the owner disabled
@@ -22,7 +24,7 @@ const NAME = 'plugins'; // document storing which plugins the owner disabled
  *     version: '1.0.0',
  *     description: 'Greets new group members.',
  *     author: 'you',
- *     commands: [ { name, ... execute } ],   // optional command definitions
+ *     commands: [ { name, permission: 'premium', ... execute } ],   // optional command definitions
  *     hooks: { 'group:participants': fn },    // optional event listeners
  *     async onLoad(api) {}, async onUnload(api) {}   // optional lifecycle
  *   }
@@ -70,6 +72,11 @@ class PluginManager {
             config,
             logger: child(`plugin:${name}`),
             events,
+            // Read-only rank lookups: ranks.of(message) → { name, level, emoji, label, ... }
+            ranks: {
+                of: (message) => resolveRank(message),
+                atLeast: (message, rank) => atLeast(resolveRank(message).name, rank)
+            },
             store: {
                 open: (docName, defaults) => docStore.open(`plugin.${name}.${docName}`, defaults),
                 touch: (docName) => docStore.touch(`plugin.${name}.${docName}`)

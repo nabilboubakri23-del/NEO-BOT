@@ -5,7 +5,7 @@ import { box } from '../utils/formatter.js';
  * someone leaves. Shows the whole plugin surface — a command, a hook and
  * per-plugin storage — without touching any core file.
  *
- * Toggle greetings per group:  .welcome on | off   (owners / admins)
+ * Toggle greetings per group:  .welcome on | off   (group admins, owners)
  * Disable the whole plugin:    .plugins disable welcome
  */
 
@@ -23,7 +23,9 @@ export default {
             category: 'group',
             description: 'Turn join/leave greetings on or off in this group.',
             usage: 'on | off',
-            permissions: ['group', 'admin'],
+            permission: 'public',
+            scope: 'group',
+            requires: ['groupAdmin'],
             async execute(sock, message, args, ctx) {
                 const store = await ctx.api.store.open(DOC, () => ({}));
                 const on = ['on', 'true', 'yes', 'enable'].includes((args[0] || '').toLowerCase());

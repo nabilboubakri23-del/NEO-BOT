@@ -95,7 +95,7 @@ export default {
     description: 'Install, enable, disable and reload plugins.',
     usage: '[info|enable|disable|install|remove|reload] ...',
     examples: ['', 'install https://example.com/welcome.js', 'disable welcome'],
-    permissions: ['owner'],
+    permission: 'owner',
 
     async execute(sock, message, args, ctx) {
         const sub = (args[0] || '').toLowerCase();

@@ -11,13 +11,14 @@ import { UserError } from '../../utils/errors.js';
 const MODES = ['public', 'private', 'groups', 'inbox'];
 
 export const SCHEMA = Object.freeze({
-    mode: { type: 'enum', values: MODES, default: 'public', description: 'public = everyone, private = owners only, groups = groups only, inbox = private chats only' },
+    mode: { type: 'enum', values: MODES, default: 'public', description: 'public = everyone, private = owners and creator only, groups = groups only, inbox = private chats only' },
     autoRead: { type: 'bool', default: false, description: 'Mark incoming messages as read' },
     typing: { type: 'bool', default: true, description: 'Show "typing..." while a command runs' },
     cooldown: { type: 'int', min: 0, max: 300, default: 3, description: 'Default seconds between uses of the same command' },
     antiSpam: { type: 'bool', default: true, description: 'Mute users who flood commands' },
     spamLimit: { type: 'int', min: 2, max: 50, default: 6, description: 'Commands allowed per 10 seconds before muting' },
-    suggest: { type: 'bool', default: true, description: 'Reply "did you mean" for mistyped commands' }
+    suggest: { type: 'bool', default: true, description: 'Reply "did you mean" for mistyped commands' },
+    dailyLimit: { type: 'int', min: 0, max: 100000, default: 100, description: 'Commands per day for the User rank (0 = unlimited; Premium and above are unlimited)' }
 });
 
 export const CHAT_SCHEMA = Object.freeze({

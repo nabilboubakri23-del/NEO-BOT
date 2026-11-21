@@ -2,6 +2,8 @@ import config from '../config/config.js';
 import { getGroup, invalidateGroup } from '../systems/groups/groupCache.js';
 import { box, success } from '../utils/formatter.js';
 import { UsageError, UserError } from '../utils/errors.js';
+import { canModerateMember } from '../systems/permissions/rankRules.js';
+import { rankOfTarget } from '../systems/permissions/resolveRank.js';
 import { resolveUserTarget, describeTarget } from '../utils/targets.js';
 
 /**
@@ -11,17 +13,23 @@ import { resolveUserTarget, describeTarget } from '../utils/targets.js';
  *   .demote  remove a member's admin
  *   .tagall  mention everyone
  *
- * All require: inside a group, the sender is an admin (owners always pass),
- * and the bot itself is an admin. Real WhatsApp actions, one member at a time.
+ * Everyone may use them (permission 'public') but only in groups, as a group admin
+ * (owners always pass), with the bot itself an admin. Members with a rank above
+ * User are protected from anyone not ranked above them; the creator cannot be targeted.
+ * Real WhatsApp actions, one member at a time.
  */
 
 const P = config.bot.prefix;
 
 const toJid = (t) => (t.number ? `${t.number}@s.whatsapp.net` : `${t.lid}@lid`);
 
-const participantAction = async (sock, message, args, action, pastTense) => {
+const participantAction = async (sock, message, args, ctx, action, pastTense) => {
     const target = await resolveUserTarget(sock, message, args[0]);
     if (!target) throw new UsageError('Who? Give a number, a @mention, or reply to their message.');
+    if (action !== 'promote') {
+        const allowed = canModerateMember(ctx.access.rank, rankOfTarget(target));
+        if (!allowed.ok) throw new UserError(allowed.reason);
+    }
 
     const jid = toJid(target);
     const result = await sock.groupParticipantsUpdate(message.chat, [jid], action).catch((e) => {
@@ -56,9 +64,11 @@ const make = (name, aliases, action, past, description) => ({
     category: 'group',
     description,
     usage: '<number|@mention|reply>',
-    permissions: ['group', 'admin', 'botAdmin'],
-    async execute(sock, message, args) {
-        await participantAction(sock, message, args, action, past);
+    permission: 'public',
+    scope: 'group',
+    requires: ['groupAdmin', 'botAdmin'],
+    async execute(sock, message, args, ctx) {
+        await participantAction(sock, message, args, ctx, action, past);
     }
 });
 
@@ -72,7 +82,9 @@ export const tagall = {
     category: 'group',
     description: 'Mention every member of the group.',
     usage: '[message]',
-    permissions: ['group', 'admin'],
+    permission: 'public',
+    scope: 'group',
+    requires: ['groupAdmin'],
     async execute(sock, message, args) {
         await tagAll(sock, message, args);
     }

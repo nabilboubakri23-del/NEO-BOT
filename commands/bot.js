@@ -10,7 +10,8 @@ export default {
     description: 'Turn the bot on or off in this chat (group admins).',
     usage: '<on|off|status>',
     examples: ['off', 'on'],
-    permissions: ['admin'],
+    permission: 'public',
+    requires: ['groupAdmin'], // owners and the creator always pass
     allowWhenOff: true,
     minArgs: 1,
 

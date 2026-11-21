@@ -21,7 +21,7 @@ const config = Object.freeze({
 
     bot: Object.freeze({
         name: process.env.BOT_NAME || 'NEO BOT',
-        version: '1.2.0',
+        version: '1.3.0',
         prefix: process.env.BOT_PREFIX || '.',
         footer: 'Advanced WhatsApp Assistant',
         website: process.env.BOT_WEBSITE || 'https://github.com'
