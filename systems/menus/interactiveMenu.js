@@ -14,6 +14,18 @@ const log = child('menus');
 const sendOptions = (sock, quoted) => (quoted ? { quoted, userJid: sock.user?.id } : {});
 
 /**
+ * Builds the message with the Button builder, then relays it ourselves.
+ * Button.send() attaches its own <biz> node while relayMessage() of this
+ * library already appends the correct <biz> node for native-flow messages,
+ * so the stanza ended up with two <biz> nodes and WhatsApp dropped it silently.
+ */
+const relayBuilt = async (sock, builder, jid, quoted) => {
+    const msg = await builder.build(jid, sendOptions(sock, quoted));
+    await sock.relayMessage(msg.key.remoteJid, msg.message, { messageId: msg.key.id });
+    return msg;
+};
+
+/**
  * Sends a single_select list (e.g. the ORDERS menu).
  * @param {object} sock
  * @param {string} jid
@@ -35,7 +47,7 @@ export const sendListMenu = async (sock, jid, menu, { quoted, fallbackText } = {
                 builder.makeRow('', row.title, row.description || '', row.id);
             }
         }
-        return await builder.send(jid, sendOptions(sock, quoted));
+        return await relayBuilt(sock, builder, jid, quoted);
     } catch (error) {
         log.error(`Interactive list failed, sending text fallback: ${describeError(error)}`);
         return sock.sendMessage(jid, { text: fallbackText || listFallback(menu) }, quoted ? { quoted } : {});
@@ -61,7 +73,7 @@ export const sendButtons = async (sock, jid, message, { quoted, fallbackText } =
             else if (button.type === 'copy') builder.addCopy(button.text, button.code);
             else throw new Error(`Unsupported button type: ${button.type}`);
         }
-        return await builder.send(jid, sendOptions(sock, quoted));
+        return await relayBuilt(sock, builder, jid, quoted);
     } catch (error) {
         log.error(`Interactive buttons failed, sending text fallback: ${describeError(error)}`);
         return sock.sendMessage(jid, { text: fallbackText || buttonsFallback(message) }, quoted ? { quoted } : {});
