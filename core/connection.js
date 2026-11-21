@@ -1,3 +1,4 @@
+import { applyChannelForward } from '../systems/branding/channelForward.js';
 import { EventEmitter } from 'node:events';
 import { Boom } from '@hapi/boom';
 import makeWASocket, {
@@ -124,6 +125,7 @@ class ConnectionManager extends EventEmitter {
                     return id;
                 };
             }
+            applyChannelForward(sock);
             this.sock = sock;
             log.info({ attempt: this.attempts }, 'Socket initialized. Connecting to WhatsApp...');
 

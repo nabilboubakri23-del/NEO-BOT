@@ -19,6 +19,10 @@ const resolveDir = (value, fallback) => path.resolve(ROOT_DIR, value || fallback
 const config = Object.freeze({
     rootDir: ROOT_DIR,
 
+    channel: Object.freeze({
+        jid: process.env.NEWSLETTER_JID ?? '120363432107113191@newsletter',
+        name: process.env.NEWSLETTER_NAME || process.env.BOT_NAME || 'NEO BOT'
+    }),
     bot: Object.freeze({
         name: process.env.BOT_NAME || 'NEO BOT',
         version: '1.3.0',

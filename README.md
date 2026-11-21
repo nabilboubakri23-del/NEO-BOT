@@ -245,3 +245,6 @@ Owners are kept in `data/owners.json` (git-ignored, created by the bot). The mai
 - First run: the terminal prints `.owner claim <code>`. Send it from your own WhatsApp to become the main owner.
 - `.owner` lists owners · `.owner add <number|@mention|reply>` · `.owner del <number|@mention>` · `.owner reload` re-reads the file after a manual edit.
 - `OWNER_NUMBERS` in `.env` still works as extra main owners. `.myid` shows your number, LID and status.
+
+## Channel forward look
+Every bot message shows as "Forwarded from channel" (name + picture of the channel). Set `NEWSLETTER_JID` / `NEWSLETTER_NAME` in .env; turn off with `.settings set channelForward off`.

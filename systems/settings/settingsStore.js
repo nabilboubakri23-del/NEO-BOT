@@ -14,6 +14,7 @@ export const SCHEMA = Object.freeze({
     mode: { type: 'enum', values: MODES, default: 'public', description: 'public = everyone, private = owners and creator only, groups = groups only, inbox = private chats only' },
     autoRead: { type: 'bool', default: false, description: 'Mark incoming messages as read' },
     typing: { type: 'bool', default: true, description: 'Show "typing..." while a command runs' },
+    channelForward: { type: 'bool', default: true, description: 'Show bot messages as forwarded from the bot channel' },
     cooldown: { type: 'int', min: 0, max: 300, default: 3, description: 'Default seconds between uses of the same command' },
     antiSpam: { type: 'bool', default: true, description: 'Mute users who flood commands' },
     spamLimit: { type: 'int', min: 2, max: 50, default: 6, description: 'Commands allowed per 10 seconds before muting' },
