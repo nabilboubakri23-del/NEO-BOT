@@ -34,14 +34,36 @@ const parseHeader = (text) => text.split('\n')[0].trim().split(/\s+/).slice(1);
 const commandFile = (name) => `${COMMANDS_DIR}/${name}.js`;
 const isCommandPath = (relative) => relative.startsWith(`${COMMANDS_DIR}${path.sep}`) && relative.endsWith('.js');
 
-/** Accepts a command name ("ping") or a path ("commands/ping.js"). */
-const resolveTarget = (input) => {
+/** Every visible file path in the project (relative). */
+const allFiles = async (dir = '.') => {
+    const list = await ws.listDir(dir);
+    const files = list.files.map((f) => path.join(dir, f.name));
+    for (const d of list.dirs) files.push(...(await allFiles(path.join(dir, d))));
+    return files.map((f) => path.normalize(f));
+};
+
+/**
+ * Accepts a command name or alias ("ping"), a file name ("ping.js", "config.js")
+ * or a path ("commands/ping.js"). File names are searched across the project.
+ */
+const resolveTarget = async (input) => {
     if (!input) return null;
-    const name = input.toLowerCase();
+    const cleaned = input.replace(/^\/+/, '');
+    const name = cleaned.toLowerCase().replace(/\.js$/, '');
+
     const loaded = commandHandler.files.get(name) || commandHandler.files.get(commandHandler.aliases.get(name));
     if (loaded) return loaded;
-    if (isValidCommandName(input) && !input.includes('.')) return commandFile(name);
-    return input;
+    if (await ws.fileExists(cleaned).catch(() => false)) return cleaned;
+    if (isValidCommandName(name) && (await ws.fileExists(commandFile(name)))) return commandFile(name);
+
+    const base = cleaned.includes('.') ? path.basename(cleaned) : `${path.basename(cleaned)}.js`;
+    const matches = (await allFiles()).filter((f) => path.basename(f).toLowerCase() === base.toLowerCase());
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) {
+        throw new Error(`Several files are named ${base}:\n${matches.map((m) => `• ${m}`).join('\n')}\nUse the full path.`);
+    }
+    // Not found anywhere: a bare name means a command file (e.g. to restore a deleted one).
+    return isValidCommandName(name) ? commandFile(name) : cleaned;
 };
 
 const formatSize = (bytes) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`);
@@ -127,6 +149,7 @@ const actions = {
                         title: 'BUILD',
                         rows: [
                             { id: `${CMD} template`, title: 'NEW COMMAND', description: 'Get a ready command template.' },
+                            { id: `${CMD} del`, title: 'DELETE COMMAND', description: 'Pick a command to delete.' },
                             { id: `${CMD} reload`, title: 'RELOAD', description: 'Hot-reload all commands.' },
                             { id: `${CMD} help`, title: 'HELP', description: 'Every dev sub-command.' }
                         ]
@@ -176,7 +199,7 @@ const actions = {
 
     async cat(sock, message, [target, pageArg]) {
         if (!target) return message.reply(panel('DEV', [`Usage: ${CMD} cat <file|command> [page]`]));
-        const file = await ws.readText(resolveTarget(target));
+        const file = await ws.readText(await resolveTarget(target));
         const numbered = file.content.split('\n').map((line, i) => `${String(i + 1).padStart(3)}| ${line}`);
 
         const pages = [];
@@ -204,7 +227,7 @@ const actions = {
 
     async get(sock, message, [target]) {
         if (!target) return message.reply(panel('DEV', [`Usage: ${CMD} get <file|command>`]));
-        const file = await ws.readText(resolveTarget(target));
+        const file = await ws.readText(await resolveTarget(target));
         await sock.sendMessage(
             message.chat,
             {
@@ -271,7 +294,7 @@ const actions = {
 
     async edit(sock, message, [target]) {
         if (!target) return message.reply(panel('DEV', [`Usage: ${CMD} edit <file|command>`, '<new code on the next lines>']));
-        const relative = ws.resolveSafe(resolveTarget(target)).relative;
+        const relative = ws.resolveSafe(await resolveTarget(target)).relative;
         if (!(await ws.fileExists(relative))) {
             return message.reply(panel('DEV', [`Not found: ${relative}`, `New command: ${CMD} add <name>`, `New file: ${CMD} new <path>`]));
         }
@@ -286,8 +309,8 @@ const actions = {
     },
 
     async del(sock, message, [target, flag]) {
-        if (!target) return message.reply(panel('DEV', [`Usage: ${CMD} del <command|file>`]));
-        const relative = ws.resolveSafe(resolveTarget(target)).relative;
+        if (!target) return pickCommandToDelete(sock, message);
+        const relative = ws.resolveSafe(await resolveTarget(target)).relative;
         const name = path.basename(relative, '.js');
         if (isCommandPath(relative) && PROTECTED_COMMANDS.has(name)) {
             return message.reply(panel('DEV', ['The dev console cannot delete itself.']));
@@ -296,6 +319,8 @@ const actions = {
 
         if (flag !== '--yes') {
             const confirm = `${CMD} del ${relative} --yes`;
+            // Plain-text confirmation too, in case the buttons do not render on this device.
+            await message.reply(panel('CONFIRM DELETE', [`File: ${relative}`, '', 'To confirm, tap DELETE or send:', confirm]));
             return sendButtons(
                 sock,
                 message.chat,
@@ -325,7 +350,7 @@ const actions = {
 
     async restore(sock, message, [target]) {
         if (!target) return message.reply(panel('DEV', [`Usage: ${CMD} restore <file|command>`]));
-        const result = await ws.restore(resolveTarget(target));
+        const result = await ws.restore(await resolveTarget(target));
         const lines = [`${result.relative} restored from ${result.from}.`];
         if (isCommandPath(result.relative)) lines.push('', ...(await reloadSummary()));
         else lines.push('', 'Restart the bot to apply core changes.');
@@ -334,7 +359,7 @@ const actions = {
 
     async backups(sock, message, [target]) {
         if (!target) return message.reply(panel('DEV', [`Usage: ${CMD} backups <file|command>`]));
-        const relative = ws.resolveSafe(resolveTarget(target)).relative;
+        const relative = ws.resolveSafe(await resolveTarget(target)).relative;
         const list = await ws.listBackups(relative);
         const lines = list.length ? list.slice(0, 15).map((b) => `• ${b.split('@')[1]}`) : ['No backups yet.'];
         await message.reply(panel(`BACKUPS ${relative}`, [...lines, '', `Restore newest: ${CMD} restore ${relative}`]));
@@ -343,6 +368,23 @@ const actions = {
     async reload(sock, message) {
         await message.reply(panel('RELOADED', await reloadSummary()));
     }
+};
+
+/** Sends a list of deletable commands; picking one opens the delete confirmation. */
+const pickCommandToDelete = async (sock, message) => {
+    const rows = [...commandHandler.commands.keys()]
+        .filter((name) => !PROTECTED_COMMANDS.has(name))
+        .sort()
+        .map((name) => ({ id: `${CMD} del ${commandHandler.files.get(name)}`, title: `${P}${name}`, description: commandHandler.files.get(name) }));
+    if (!rows.length) return message.reply(panel('DELETE COMMAND', ['No commands to delete.']));
+    const text = panel('DELETE COMMAND', ['Pick a command to delete,', 'or send:', `${CMD} del <name>`, '', ...rows.map((r) => `• ${r.title}`)]);
+    await message.reply(text);
+    await sendListMenu(
+        sock,
+        message.chat,
+        { title: 'DELETE COMMAND', body: text, footer: config.bot.footer, buttonText: 'COMMANDS', sections: [{ title: 'DELETE', rows: rows.slice(0, 10) }] },
+        { quoted: message.raw, fallbackText: text }
+    );
 };
 
 /** Validates then writes a file; command files are hot-reloaded. */
@@ -389,6 +431,7 @@ const helpText = () =>
         `${CMD} add <name>  + code  → new command`,
         `${CMD} edit <file|cmd>  + code  → replace`,
         `${CMD} new <path>  + code  → new file`,
+        `${CMD} del  → pick a command to delete`,
         `${CMD} del <file|cmd>  → delete (trash)`,
         `${CMD} restore <file|cmd>  → undo`,
         `${CMD} backups <file|cmd>  → versions`,
@@ -400,7 +443,7 @@ const helpText = () =>
         'Every change is checked before saving.'
     ]);
 
-const ALIASES = { list: 'ls', dir: 'ls', read: 'cat', view: 'cat', show: 'cat', download: 'get', rm: 'del', delete: 'del', remove: 'del', create: 'new', undo: 'restore', search: 'find', commands: 'cmds' };
+const ALIASES = { list: 'ls', dir: 'ls', read: 'cat', view: 'cat', show: 'cat', download: 'get', rm: 'del', delete: 'del', remove: 'del', delcmd: 'del', rmcmd: 'del', create: 'new', undo: 'restore', search: 'find', commands: 'cmds' };
 
 export default {
     name: 'dev',
