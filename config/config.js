@@ -28,6 +28,8 @@ const config = Object.freeze({
     }),
 
     owner: Object.freeze({
+        // Main owner written into data/owners.json on first run (international, no "+").
+        main: (process.env.MAIN_OWNER || '212721063675').replace(/\D/g, ''),
         // Comma separated international numbers without "+" (e.g. 2126XXXXXXXX)
         numbers: (process.env.OWNER_NUMBERS || '')
             .split(',')

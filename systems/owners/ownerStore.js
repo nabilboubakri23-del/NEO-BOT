@@ -46,6 +46,11 @@ const save = async () => {
 /** Loads (or reloads) the file. Called at startup and whenever the file may have changed. */
 export const loadOwners = () => {
     state = existsSync(OWNERS_FILE) ? normalize(JSON.parse(readFileSync(OWNERS_FILE, 'utf8'))) : EMPTY();
+    // Seed the configured main owner when the file has none yet.
+    if (!state.owner.number && !state.owner.lid && config.owner.main) {
+        state.owner.number = config.owner.main;
+        save().catch(() => {});
+    }
     return state;
 };
 
