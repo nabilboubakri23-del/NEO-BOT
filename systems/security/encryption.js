@@ -23,14 +23,20 @@ let cachedKey = null;
 
 const getKey = () => {
     if (cachedKey) return cachedKey;
-    const raw = config.session.encryptionKey;
-    if (!isHexKey(raw, 32)) {
-        throw new EncryptionError(
-            'SESSION_ENCRYPTION_KEY is missing or invalid. It must be 64 hex characters (32 bytes). Generate one with: npm run genkey'
-        );
+    const raw = String(config.session.encryptionKey || '').trim();
+    if (isHexKey(raw, 32)) {
+        cachedKey = Buffer.from(raw, 'hex');
+        return cachedKey;
     }
-    cachedKey = Buffer.from(raw, 'hex');
-    return cachedKey;
+    // Also accept a random base64 secret of at least 32 bytes (e.g. Render's "Generate" value).
+    const decoded = /^[A-Za-z0-9+/_-]+={0,2}$/.test(raw) ? Buffer.from(raw, 'base64') : Buffer.alloc(0);
+    if (decoded.length >= 32) {
+        cachedKey = crypto.createHash('sha256').update(decoded).digest();
+        return cachedKey;
+    }
+    throw new EncryptionError(
+        'SESSION_ENCRYPTION_KEY is missing or invalid. Use 64 hex characters (npm run genkey) or a random base64 value of 32+ bytes.'
+    );
 };
 
 /** Throws early if the key is not configured correctly. */

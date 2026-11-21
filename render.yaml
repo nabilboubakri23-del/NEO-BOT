@@ -11,11 +11,11 @@ services:
       - key: NODE_VERSION
         value: "22"
       - key: SESSION_ENCRYPTION_KEY
-        sync: false
+        generateValue: true
       - key: MONGODB_URI
         sync: false
       - key: WEB_SETUP_TOKEN
-        sync: false
+        generateValue: true
       - key: OWNER_NUMBERS
         sync: false
       - key: WEB_SETUP_ENABLED
