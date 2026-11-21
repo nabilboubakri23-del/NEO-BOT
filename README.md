@@ -55,6 +55,7 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 | `.perm list` · `.perm show <cmd>` | 👑 owner+ | Runtime permission changes. |
 | `.perm set <cmd> <rank>` · `reset` · `lock` · `unlock` · `allow <user> <cmd>` · `deny <user> <cmd>` · `clear <user> <cmd>` | 🔱 creator | Change who may use a command without editing code. |
 | `.bot on/off/status` | group admins | Switch the bot off in one chat. |
+| `.jid [group/channel link]` (aliases gid, cid) | 👤 public | Group or channel ID: run it in a group, in your own channel, with an invite/channel link, or replying to a post forwarded from a channel. |
 | `.settings [set/reset/info]` | 👑 owner+ | Change bot settings from WhatsApp. |
 | `.ban / .unban / .banlist` | 🛡️ moderator+ | Banned users are ignored everywhere (only users below your rank). |
 | `.owner` | 👑 owner+ (add/del: 🔱 creator) | Manage owners (data/owners.json); `.owner claim` on first setup. |

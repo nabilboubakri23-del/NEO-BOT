@@ -142,7 +142,9 @@ export const handleUpsert = async (sock, { messages, type }) => {
             // are accepted, but never the bot's own replies.
             if (raw.key.fromMe && isOwnMessage(raw.key.id)) continue;
             const jid = raw.key.remoteJid;
-            if (isJidStatusBroadcast(jid) || isJidBroadcast(jid) || isJidNewsletter(jid)) continue;
+            if (isJidStatusBroadcast(jid) || isJidBroadcast(jid)) continue;
+            // Channels: only the owner's own command posts (e.g. ".jid" in your channel) are handled.
+            if (isJidNewsletter(jid) && !raw.key.fromMe) continue;
             if (isDuplicate(raw.key.id)) continue;
 
             const ts = Number(raw.messageTimestamp || 0);
