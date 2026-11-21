@@ -6,6 +6,7 @@ import sessionManager from './core/sessionManager.js';
 import commandHandler from './core/commandHandler.js';
 import { handleUpsert } from './core/messageHandler.js';
 import { startSetupServer, stopSetupServer } from './core/setupServer.js';
+import { startKeepAlive, stopKeepAlive } from './core/keepAlive.js';
 import { assertEncryptionReady } from './systems/security/encryption.js';
 import { describeError } from './utils/errors.js';
 
@@ -25,8 +26,10 @@ const authenticateAndConnect = async ({ allowEnv = true } = {}) => {
 
 const fatal = async (message, error) => {
     log.fatal(`${message}${error ? `: ${describeError(error)}` : ''}`);
+    stopKeepAlive();
     await connectionManager.stop();
     await stopSetupServer();
+    await sessionManager.close();
     process.exit(1);
 };
 
@@ -42,6 +45,7 @@ const main = async () => {
     assertEncryptionReady();
     await commandHandler.load();
     startSetupServer();
+    startKeepAlive();
 
     connectionManager.on('messages', (sock, upsert) => {
         handleUpsert(sock, upsert).catch((error) => log.error(`Upsert failed: ${describeError(error)}`));
@@ -67,8 +71,10 @@ const main = async () => {
 
 const shutdown = async (signal) => {
     log.info({ signal }, 'Shutting down gracefully.');
+    stopKeepAlive();
     await connectionManager.stop();
     await stopSetupServer();
+    await sessionManager.close();
     process.exit(0);
 };
 

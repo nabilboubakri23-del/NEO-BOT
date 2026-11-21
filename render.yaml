@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: neo-bot
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: node index.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: SESSION_ENCRYPTION_KEY
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: WEB_SETUP_TOKEN
+        sync: false
+      - key: OWNER_NUMBERS
+        sync: false
+      - key: WEB_SETUP_ENABLED
+        value: "true"

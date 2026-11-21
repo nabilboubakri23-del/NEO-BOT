@@ -1,26 +1,25 @@
-import { mkdir, readFile, rename, rm, stat, unlink, writeFile, readdir } from 'node:fs/promises';
-import path from 'node:path';
 import { Mutex } from 'async-mutex';
 import { BufferJSON, initAuthCreds, proto } from 'baileys';
-import config from '../config/config.js';
 import { decrypt, encrypt, hashName, assertEncryptionReady } from '../systems/security/encryption.js';
+import { createSessionStore } from '../systems/storage/index.js';
 import { EncryptionError, SessionIntegrityError } from '../utils/errors.js';
 import { child } from './logger.js';
 
 const log = child('session');
 
 /**
- * Encrypted authentication-state storage adapter for Baileys.
+ * Encrypted authentication-state adapter for Baileys.
  *
  * It implements the same contract as Baileys' useMultiFileAuthState
- * ({ state: { creds, keys: { get, set } }, saveCreds }) but every file is
- * written with AES-256-GCM and read back through integrity verification.
- * Baileys never touches plaintext files on disk.
+ * ({ state: { creds, keys: { get, set } }, saveCreds }). Every entry is
+ * encrypted with AES-256-GCM here before it reaches the store (local files
+ * or MongoDB), and verified on the way back. Stores only see ciphertext.
  */
 class SessionManager {
-    constructor(dir = config.session.dir) {
-        this.dir = dir;
+    constructor(store = createSessionStore()) {
+        this.store = store;
         this.locks = new Map();
+        this.ready = null;
     }
 
     #lock(file) {
@@ -32,55 +31,54 @@ class SessionManager {
         return mutex;
     }
 
-    #filePath(name) {
-        return path.join(this.dir, `${hashName(name)}.enc`);
+    #key(name) {
+        return hashName(name);
     }
 
-    async #ensureDir() {
-        await mkdir(this.dir, { recursive: true, mode: 0o700 });
+    async #ensureReady() {
+        this.ready ||= this.store.init().then(() => log.info({ store: this.store.kind }, 'Session store ready.'));
+        try {
+            await this.ready;
+        } catch (error) {
+            this.ready = null;
+            throw error;
+        }
     }
 
     async #write(name, value) {
-        const file = this.#filePath(name);
+        await this.#ensureReady();
+        const key = this.#key(name);
         const payload = encrypt(JSON.stringify(value, BufferJSON.replacer), name);
-        await this.#lock(file).runExclusive(async () => {
-            // Atomic write: never leave a half-written credential file.
-            const tmp = `${file}.${process.pid}.tmp`;
-            await writeFile(tmp, payload, { mode: 0o600 });
-            await rename(tmp, file);
-        });
+        await this.#lock(key).runExclusive(() => this.store.set(key, payload));
     }
 
     async #read(name) {
-        const file = this.#filePath(name);
-        return this.#lock(file).runExclusive(async () => {
-            let payload;
-            try {
-                payload = await readFile(file);
-            } catch (error) {
-                if (error.code === 'ENOENT') return null;
-                throw error;
-            }
+        await this.#ensureReady();
+        const key = this.#key(name);
+        return this.#lock(key).runExclusive(async () => {
+            const payload = await this.store.get(key);
+            if (!payload) return null;
             try {
                 return JSON.parse(decrypt(payload, name).toString('utf8'), BufferJSON.reviver);
             } catch (error) {
                 if (error instanceof EncryptionError) {
-                    throw new SessionIntegrityError(`Session file could not be verified (${name}). ${error.message}`);
+                    throw new SessionIntegrityError(`Session entry could not be verified (${name}). ${error.message}`);
                 }
-                throw new SessionIntegrityError(`Session file is corrupted (${name}).`);
+                throw new SessionIntegrityError(`Session entry is corrupted (${name}).`);
             }
         });
     }
 
     async #remove(name) {
-        const file = this.#filePath(name);
-        await this.#lock(file).runExclusive(() => unlink(file).catch(() => {}));
+        await this.#ensureReady();
+        const key = this.#key(name);
+        await this.#lock(key).runExclusive(() => this.store.delete(key));
     }
 
     /** Returns true when stored credentials represent a completed WhatsApp link. */
     async hasValidSession() {
         assertEncryptionReady();
-        await this.#ensureDir();
+        await this.#ensureReady();
         const creds = await this.#read('creds.json');
         return Boolean(creds?.me?.id && creds?.account);
     }
@@ -88,7 +86,7 @@ class SessionManager {
     /** Baileys-compatible auth state backed by encrypted files. */
     async loadAuthState() {
         assertEncryptionReady();
-        await this.#ensureDir();
+        await this.#ensureReady();
         const creds = (await this.#read('creds.json')) || initAuthCreds();
 
         const state = {
@@ -127,16 +125,20 @@ class SessionManager {
 
     /** Permanently deletes the stored session (logout / revoked / reset). */
     async deleteSession() {
-        await rm(this.dir, { recursive: true, force: true });
-        await this.#ensureDir();
+        await this.#ensureReady();
+        await this.store.clear();
         this.locks.clear();
         log.warn('Session data deleted.');
     }
 
     async fileCount() {
-        const info = await stat(this.dir).catch(() => null);
-        if (!info) return 0;
-        return (await readdir(this.dir)).filter((f) => f.endsWith('.enc')).length;
+        await this.#ensureReady();
+        return this.store.count();
+    }
+
+    async close() {
+        await this.store.close();
+        this.ready = null;
     }
 }
 

@@ -72,3 +72,29 @@ tests/offline.test.js      npm test
 - The bot ignores its own messages: test from **another** WhatsApp number.
 - Only fresh messages (`notify`, < 60 s old at boot) are processed.
 - Interactive rendering depends on the WhatsApp client; it must be verified on a real phone.
+
+## Deploy on Render (free) with MongoDB Atlas
+
+Render's free plan wipes local files on every restart and idles after 15 minutes
+without traffic. NEO BOT handles both:
+
+- **Session in MongoDB:** set `MONGODB_URI` and the session is stored in MongoDB
+  (encrypted with AES-256-GCM *before* it leaves the bot; the database only sees
+  hashed keys and ciphertext).
+- **Keep-alive:** the bot pings its own `/health` every 10 minutes using
+  `RENDER_EXTERNAL_URL` (set by Render automatically).
+
+Steps:
+
+1. MongoDB Atlas → create a free **M0** cluster → Database Access: add a user →
+   Network Access: allow `0.0.0.0/0` → Connect → Drivers → copy the `mongodb+srv://...` string.
+2. Render → New → **Blueprint** → pick this repository (uses `render.yaml`), or
+   New → Web Service with build `npm ci --omit=dev`, start `node index.js`, plan Free.
+3. Environment variables:
+   - `SESSION_ENCRYPTION_KEY` – `npm run genkey` (keep a copy; losing it = link again)
+   - `MONGODB_URI` – the Atlas string
+   - `WEB_SETUP_TOKEN` – a long random secret
+   - `OWNER_NUMBERS` – e.g. `2126XXXXXXXX`
+4. Open `https://<your-service>.onrender.com/?token=<WEB_SETUP_TOKEN>` and link with QR or phone number.
+
+Note: 750 free instance hours per month cover one service running all month.

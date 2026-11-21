@@ -43,6 +43,9 @@ const config = Object.freeze({
 
     session: Object.freeze({
         dir: resolveDir(process.env.SESSION_DIR, 'storage/sessions'),
+        // When set, the encrypted session is kept in MongoDB instead of local files.
+        mongoUri: process.env.MONGODB_URI || '',
+        mongoDb: process.env.MONGODB_DB || 'neobot',
         encryptionKey: process.env.SESSION_ENCRYPTION_KEY || ''
     }),
 
@@ -57,6 +60,13 @@ const config = Object.freeze({
         enabled: toBool(process.env.WEB_SETUP_ENABLED, !process.stdin.isTTY),
         port: toInt(process.env.PORT || process.env.WEB_SETUP_PORT, 3000),
         token: process.env.WEB_SETUP_TOKEN || ''
+    }),
+
+    keepAlive: Object.freeze({
+        // Public URL pinged to stop free hosts from idling the service.
+        // Render sets RENDER_EXTERNAL_URL automatically.
+        url: process.env.KEEP_ALIVE_URL || process.env.RENDER_EXTERNAL_URL || '',
+        intervalMs: toInt(process.env.KEEP_ALIVE_INTERVAL_MS, 10 * 60 * 1000)
     }),
 
     logging: Object.freeze({

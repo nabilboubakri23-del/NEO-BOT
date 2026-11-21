@@ -12,6 +12,8 @@ process.env.LOG_LEVEL = 'silent';
 const { encrypt, decrypt } = await import('../systems/security/encryption.js');
 const { normalizePhoneNumber } = await import('../utils/validators.js');
 const { SessionManager } = await import('../core/sessionManager.js');
+const { FileStore } = await import('../systems/storage/index.js');
+const fileSession = (dir) => new SessionManager(new FileStore(dir));
 const { Button, generateWAMessageFromContent } = await import('baileys');
 
 test('AES-256-GCM round trip with random IV', () => {
@@ -41,7 +43,7 @@ test('phone validation', () => {
 
 test('encrypted session adapter: save, restore, no plaintext on disk, tamper detection', async () => {
     const dir = path.join(os.tmpdir(), `neo-session-${Date.now()}`);
-    const sm = new SessionManager(dir);
+    const sm = fileSession(dir);
     const { state, saveCreds } = await sm.loadAuthState();
     state.creds.me = { id: '212600000000:1@s.whatsapp.net' };
     state.creds.account = { details: Buffer.from('x') };
@@ -49,7 +51,7 @@ test('encrypted session adapter: save, restore, no plaintext on disk, tamper det
     await state.keys.set({ 'pre-key': { 1: { public: Buffer.from('pub'), private: Buffer.from('priv') } } });
 
     assert.equal(await sm.hasValidSession(), true);
-    const restored = await new SessionManager(dir).loadAuthState();
+    const restored = await fileSession(dir).loadAuthState();
     assert.equal(restored.state.creds.me.id, state.creds.me.id);
     assert.equal(restored.state.creds.noiseKey.private.toString('hex'), state.creds.noiseKey.private.toString('hex'));
     const keys = await restored.state.keys.get('pre-key', ['1']);
@@ -66,7 +68,7 @@ test('encrypted session adapter: save, restore, no plaintext on disk, tamper det
     const raw = await readFile(victim);
     raw[raw.length - 1] ^= 1;
     await writeFile(victim, raw);
-    await assert.rejects(new SessionManager(dir).loadAuthState().then((s) => s.state.keys.get('pre-key', ['1']).then(() => sm.hasValidSession())), /could not be verified/);
+    await assert.rejects(fileSession(dir).loadAuthState().then((s) => s.state.keys.get('pre-key', ['1']).then(() => sm.hasValidSession())), /could not be verified/);
 
     await sm.deleteSession();
     assert.equal(await sm.hasValidSession(), false);
