@@ -15,6 +15,7 @@ import { rememberOwnMessage } from '../systems/security/dedupe.js';
 import { invalidateGroup, peekGroup } from '../systems/groups/groupCache.js';
 import { baileysLogger, child } from './logger.js';
 import { describeError } from '../utils/errors.js';
+import events from './events.js';
 
 const log = child('connection');
 
@@ -133,7 +134,10 @@ class ConnectionManager extends EventEmitter {
             sock.ev.on('messages.upsert', (upsert) => this.emit('messages', sock, upsert));
             // Admin changes, joins, leaves, subject changes → cached metadata is stale.
             sock.ev.on('groups.update', (updates) => updates.forEach((u) => invalidateGroup(u.id)));
-            sock.ev.on('group-participants.update', (update) => invalidateGroup(update.id));
+            sock.ev.on('group-participants.update', (update) => {
+                invalidateGroup(update.id);
+                events.emit('group:participants', { sock, update });
+            });
         } catch (error) {
             this.sock = null;
             throw error; // encryption / integrity errors must stop authentication safely
@@ -181,6 +185,7 @@ class ConnectionManager extends EventEmitter {
             }
             log.info({ files: await sessionManager.fileCount() }, 'WhatsApp connection is open.');
             this.emit('open', sock);
+            events.emit('connection:open', { sock });
             return;
         }
 

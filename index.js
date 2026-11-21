@@ -15,6 +15,7 @@ import docStore from './systems/database/docStore.js';
 import { loadSettings } from './systems/settings/settingsStore.js';
 import { loadUsers } from './systems/users/userStore.js';
 import { loadStats } from './systems/stats/statsStore.js';
+import pluginManager from './systems/plugins/pluginManager.js';
 
 const log = logger.child({ module: 'main' });
 
@@ -53,7 +54,8 @@ const main = async () => {
     loadOwners();
     await docStore.init();
     await Promise.all([loadSettings(), loadUsers(), loadStats()]);
-    await commandHandler.load();
+    pluginManager.attach(commandHandler);
+    await pluginManager.load(); // also (re)loads commands, merging plugin commands in
     startSetupServer();
     startKeepAlive();
 

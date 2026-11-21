@@ -1,4 +1,4 @@
-# NEO BOT — V1.1.0 (Core Evolution)
+# NEO BOT — V1.2.0 (Plugin System)
 
 Modular WhatsApp bot. Phase 1: connection, dual authentication, encrypted sessions,
 auto-reconnect, message handling, real interactive list menu, `.menu` and `.ping`.
@@ -53,6 +53,37 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 | `.ban / .unban / .banlist` | owners | Banned users are ignored everywhere. |
 | `.owner` | owners | Manage owners (data/owners.json). |
 | `.dev` | owners | Remote developer console. |
+| `.kick / .promote / .demote` | group admins (bot must be admin) | Manage one member. |
+| `.tagall [message]` | group admins | Mention every member. |
+| `.welcome on/off` | group admins | Join/leave greetings (from the `welcome` plugin). |
+| `.plugins [info/enable/disable/install/remove/reload]` | owners | Manage plugins. |
+
+## Plugin System (v1.2.0)
+- **Event bus** (`core/events.js`): the core emits `message`, `command:before` (can veto), `command:after`,
+  `command:error`, `group:participants`, `connection:open`, `plugins:reloaded`. Failing listeners are isolated.
+- **Plugin manager** (`systems/plugins/pluginManager.js`): every `.js` file in `/plugins` (files starting with `_` are skipped)
+  can add commands, hooks and its own storage (`api.store`), without touching the core.
+  Enable / disable is saved; reload removes exactly what a plugin added.
+- **Safe install from URL**: `.plugins install <https url>` downloads, scans for risky code
+  (shell, eval, file deletion, env / credentials), validates in isolation, then loads.
+  Risky plugins need `--force`.
+- **Multi-command files**: a command file may `export default [cmdA, cmdB]` (see `commands/group.js`).
+
+### Writing a plugin
+```js
+// plugins/hello.js
+export default {
+    name: 'hello',
+    version: '1.0.0',
+    description: 'Says hi when someone writes "hi".',
+    commands: [{ name: 'hi', description: 'Say hi.', async execute(sock, m) { await m.reply('Hi!'); } }],
+    hooks: {
+        async message({ message }, api) {
+            if (message.text.toLowerCase() === 'hi') await message.reply('Hello 👋');
+        }
+    }
+};
+```
 
 ## Core Evolution (v1.1.0)
 - **Command Engine V2** (`core/commandHandler.js`, `core/commandParser.js`): quoted args, `--flags`, multi-line body,

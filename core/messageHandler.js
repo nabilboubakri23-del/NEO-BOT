@@ -16,6 +16,7 @@ import { isDuplicate, isOwnMessage, rememberOwnMessage } from '../systems/securi
 import { getSetting } from '../systems/settings/settingsStore.js';
 import { trackMessage } from '../systems/users/userStore.js';
 import { countMessage } from '../systems/stats/statsStore.js';
+import events from './events.js';
 
 const log = child('messages');
 
@@ -153,6 +154,10 @@ export const handleUpsert = async (sock, { messages, type }) => {
 
             countMessage();
             if (!message.fromMe && getSetting('autoRead')) sock.readMessages?.([raw.key]).catch(() => {});
+
+            // Plugins see every message (auto-reply, anti-link, counters...).
+            // A hook returning false stops the message from being routed further.
+            if (!message.fromMe && !(await events.barrier('message', { sock, message }))) continue;
 
             const isCommand = message.text.startsWith(config.bot.prefix);
             if (message.fromMe && !message.selectionId && !isCommand) continue;

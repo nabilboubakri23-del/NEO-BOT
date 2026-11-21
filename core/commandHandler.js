@@ -14,6 +14,8 @@ import { checkCooldown, checkSpam } from '../systems/security/rateLimiter.js';
 import { getSetting } from '../systems/settings/settingsStore.js';
 import { trackMessage } from '../systems/users/userStore.js';
 import { countCommand } from '../systems/stats/statsStore.js';
+import events from './events.js';
+import pluginManager from '../systems/plugins/pluginManager.js';
 
 const log = child('commands');
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -21,7 +23,7 @@ const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 /**
  * Command Engine V2.
  *
- * Every file in /commands exports a default object:
+ * Every file in /commands exports a default object (or an array of them):
  * {
  *   name: 'ping',                       required, a-z 0-9 _ -
  *   aliases: ['p'],
@@ -85,30 +87,52 @@ class CommandHandler {
         const list = (await readdir(dir, { recursive: true })).filter((f) => f.endsWith('.js') && !path.basename(f).startsWith('.')).sort();
         for (const file of list) {
             try {
-                const mod = (await import(`${pathToFileURL(path.join(dir, file)).href}?v=${version}`)).default;
-                const problems = CommandHandler.validate(mod);
-                if (problems.length) {
-                    failures.push({ file, error: problems.join(' ') });
-                    log.warn({ file, problems }, 'Skipped invalid command file.');
-                    continue;
-                }
-                if (mod.enabled === false) continue;
-                const name = mod.name.toLowerCase();
-                if (commands.has(name)) {
-                    failures.push({ file, error: `Duplicate command name "${name}" (already in ${files.get(name)}).` });
-                    continue;
-                }
-                commands.set(name, mod);
-                files.set(name, path.relative(config.rootDir, path.join(dir, file)));
-                for (const [id, handler] of Object.entries(mod.interactions || {})) {
-                    if (interactions.has(id)) log.warn({ id }, 'Duplicate interaction id overwritten.');
-                    interactions.set(id, { command: name, handler });
+                const exported = (await import(`${pathToFileURL(path.join(dir, file)).href}?v=${version}`)).default;
+                // A file may export one command or an array of related commands.
+                for (const mod of Array.isArray(exported) ? exported : [exported]) {
+                    const problems = CommandHandler.validate(mod);
+                    if (problems.length) {
+                        failures.push({ file, error: problems.join(' ') });
+                        log.warn({ file, problems }, 'Skipped invalid command.');
+                        continue;
+                    }
+                    if (mod.enabled === false) continue;
+                    const name = mod.name.toLowerCase();
+                    if (commands.has(name)) {
+                        failures.push({ file, error: `Duplicate command name "${name}" (already in ${files.get(name)}).` });
+                        continue;
+                    }
+                    commands.set(name, mod);
+                    files.set(name, path.relative(config.rootDir, path.join(dir, file)));
+                    for (const [id, handler] of Object.entries(mod.interactions || {})) {
+                        if (interactions.has(id)) log.warn({ id }, 'Duplicate interaction id overwritten.');
+                        interactions.set(id, { command: name, handler });
+                    }
                 }
             } catch (error) {
                 failures.push({ file, error: describeError(error) });
                 log.error({ file }, `Failed to load command: ${describeError(error)}`);
             }
         }
+        // Commands contributed by active plugins (core commands win on name clashes).
+        for (const mod of pluginManager.pluginCommands()) {
+            const source = `plugins/${mod.plugin}`;
+            const problems = CommandHandler.validate(mod);
+            if (problems.length) {
+                failures.push({ file: source, error: `${mod?.name || '?'}: ${problems.join(' ')}` });
+                continue;
+            }
+            if (mod.enabled === false) continue;
+            const name = mod.name.toLowerCase();
+            if (commands.has(name)) {
+                failures.push({ file: source, error: `Duplicate command name "${name}" (already in ${files.get(name)}).` });
+                continue;
+            }
+            commands.set(name, mod);
+            files.set(name, source);
+            for (const [id, handler] of Object.entries(mod.interactions || {})) interactions.set(id, { command: name, handler });
+        }
+
         // Aliases after all names, so an alias can never hide a real command name.
         for (const [name, mod] of commands) {
             for (const raw of mod.aliases || []) {
@@ -175,7 +199,7 @@ class CommandHandler {
 
         if (!command) return this.#unknown(message, parsed.name, access);
 
-        const ctx = { ...parsed, prefix: this.prefix, command, usedName: parsed.name, access, source: 'text' };
+        const ctx = { ...parsed, prefix: this.prefix, command, usedName: parsed.name, access, source: 'text', api: command.plugin ? pluginManager.api(command.plugin) : null };
         return this.#run(sock, message, command, ctx, () => {
             if (command.minArgs && parsed.args.length < command.minArgs) throw new UsageError();
             return command.execute(sock, message, parsed.args, ctx);
@@ -192,7 +216,7 @@ class CommandHandler {
         const exact = this.interactions.get(id);
         if (exact) {
             const command = this.get(exact.command);
-            const ctx = { name: command.name, args: [], flags: {}, prefix: this.prefix, command, access, source: 'selection', selectionId: id };
+            const ctx = { name: command.name, args: [], flags: {}, prefix: this.prefix, command, access, source: 'selection', selectionId: id, api: command.plugin ? pluginManager.api(command.plugin) : null };
             return this.#run(sock, message, command, ctx, () => exact.handler(sock, message, ctx));
         }
 
@@ -200,7 +224,7 @@ class CommandHandler {
         const [head, ...parts] = id.split(':');
         const command = parts.length ? this.get(head) : null;
         if (command?.onSelect) {
-            const ctx = { name: command.name, args: parts, flags: {}, prefix: this.prefix, command, access, source: 'selection', selectionId: id };
+            const ctx = { name: command.name, args: parts, flags: {}, prefix: this.prefix, command, access, source: 'selection', selectionId: id, api: command.plugin ? pluginManager.api(command.plugin) : null };
             return this.#run(sock, message, command, ctx, () => command.onSelect(sock, message, parts, ctx));
         }
         log.warn({ id }, 'Unknown interactive selection.');
@@ -250,6 +274,12 @@ class CommandHandler {
             }
         }
 
+        // Plugins may veto a command (e.g. an anti-link or maintenance plugin).
+        if (!(await events.barrier('command:before', { sock, message, command, ctx }))) {
+            log.debug({ command: command.name }, 'Blocked by a plugin hook.');
+            return;
+        }
+
         trackMessage(message, { command: command.name });
         const typing = getSetting('typing') && ctx.source === 'text';
         if (typing) sock.sendPresenceUpdate?.('composing', message.chat).catch(() => {});
@@ -260,10 +290,12 @@ class CommandHandler {
             await executor();
         } catch (error) {
             failed = !error?.expose;
+            if (failed) events.emit('command:error', { sock, message, command, error });
             await this.#replyError(message, command, error, access);
         } finally {
             if (typing) sock.sendPresenceUpdate?.('paused', message.chat).catch(() => {});
             countCommand(command.name, { failed });
+            events.emit('command:after', { sock, message, command, ctx, ok: !failed, ms: Date.now() - started });
             log.info({ command: command.name, source: ctx.source, group: message.isGroup, ms: Date.now() - started, ok: !failed }, 'Command handled.');
         }
     }
