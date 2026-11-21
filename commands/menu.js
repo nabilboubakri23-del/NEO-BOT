@@ -2,117 +2,138 @@ import config from '../config/config.js';
 import connectionManager from '../core/connection.js';
 import commandHandler from '../core/commandHandler.js';
 import { sendButtons, sendListMenu } from '../systems/menus/interactiveMenu.js';
+import { CATEGORIES, categoryOf, findCategory } from '../systems/menus/menuLayout.js';
+import { requirementsOf } from '../systems/permissions/permissions.js';
 import { box, formatDuration } from '../utils/formatter.js';
 import { getOwners } from '../systems/owners/ownerStore.js';
 
-const { name: BOT, version, prefix, footer, website } = config.bot;
+/**
+ * .menu — multi-level interactive menu built from the command registry.
+ *
+ *   Main list (categories) ──► category list (its commands) ──► runs the command
+ *          ▲                              │
+ *          └────────── BACK ◄─────────────┘
+ *
+ * Selection ids:  menu:main · menu:cat:<key> · menu:panel · .<command>
+ */
 
-const MAIN_MENU = {
-    title: BOT,
-    body: box(BOT, [
-        `Welcome to ${BOT}.`,
-        '',
-        footer,
-        `Version: ${version}`,
-        'Status: Online',
-        '',
-        'Select a category below.'
-    ]),
-    footer,
-    buttonText: 'ORDERS',
-    sections: [
-        {
-            title: 'MAIN SYSTEMS',
-            rows: [
-                { id: 'ai_center', title: 'AI CENTER', description: 'Artificial intelligence tools.' },
-                { id: 'smart_tools', title: 'SMART TOOLS', description: 'Advanced utility tools.' },
-                { id: 'media_lab', title: 'MEDIA LAB', description: 'Media processing tools.' }
-            ]
-        },
-        {
-            title: 'OTHER SYSTEMS',
-            rows: [
-                { id: 'knowledge', title: 'KNOWLEDGE', description: 'Knowledge and research.' },
-                { id: 'automation', title: 'AUTOMATION', description: 'Automated operations.' },
-                { id: 'system', title: 'SYSTEM', description: 'Bot information and settings.' }
-            ]
-        }
-    ]
+const { name: BOT, version, prefix: P, footer, website } = config.bot;
+
+/** Commands of each category key that the sender may see. */
+const grouped = (access) => {
+    const map = new Map(CATEGORIES.map((c) => [c.key, []]));
+    for (const command of commandHandler.visible(access)) map.get(categoryOf(command.category).key).push(command);
+    for (const list of map.values()) list.sort((a, b) => a.name.localeCompare(b.name));
+    return map;
 };
 
-const ROWS = Object.fromEntries(MAIN_MENU.sections.flatMap((s) => s.rows).map((r) => [r.id, r]));
+const shown = (access) => CATEGORIES.filter((c) => !c.ownerOnly || access.isOwner);
 
-const comingSoon = (id) => async (sock, message) => {
-    const row = ROWS[id];
-    await message.reply(
-        box(row.title, [row.description, '', `Selection: ${id}`, 'Status: Coming soon', '', `Type ${prefix}menu to go back.`])
-    );
+const sendMain = async (sock, message, ctx) => {
+    const groups = grouped(ctx.access);
+    const categories = shown(ctx.access);
+    const sections = [];
+    for (const category of categories) {
+        let section = sections.find((s) => s.title === category.section);
+        if (!section) sections.push((section = { title: category.section, rows: [] }));
+        const count = groups.get(category.key).length;
+        section.rows.push({
+            id: `menu:cat:${category.key}`,
+            title: category.title,
+            description: count ? `${count} command${count > 1 ? 's' : ''} · ${category.description}` : `Coming soon · ${category.description}`
+        });
+    }
+    const body = box(BOT, [`Hello ${message.pushName || 'there'} 👋`, '', footer, `Version: ${version}`, 'Status: Online', '', 'Tap ORDERS and pick a category.']);
+
+    await sendListMenu(sock, message.chat, { title: BOT, body, footer, buttonText: 'ORDERS', sections }, {
+        quoted: message.raw,
+        fallbackText: [body, '', ...categories.map((c) => `• ${P}menu ${c.key}  (${c.title})`)].join('\n')
+    });
 };
 
-const sendSystemPanel = async (sock, message) => {
+const sendCategory = async (sock, message, ctx, key) => {
+    const category = findCategory(key);
+    if (!category || (category.ownerOnly && !ctx.access.isOwner)) return sendMain(sock, message, ctx);
+    const commands = grouped(ctx.access).get(category.key);
+
+    const rows = commands.map((c) => ({
+        // Commands that need arguments open their help card instead of running empty.
+        id: c.minArgs ? `help:cmd:${c.name}` : `${P}${c.name}`,
+        title: `${P}${c.name}`,
+        description: (c.description || '').slice(0, 70) + (requirementsOf(c).includes('admin') ? ' (admins)' : '')
+    }));
+    const body = box(category.title, [
+        category.description,
+        '',
+        commands.length ? `${commands.length} command${commands.length > 1 ? 's' : ''} available.` : 'Coming soon. No commands yet.',
+        commands.length ? 'Tap OPEN to choose one.' : 'Tap OPEN to go back.'
+    ]);
+    const sections = [];
+    if (rows.length) sections.push({ title: category.title, rows: rows.slice(0, 8) });
+    sections.push({
+        title: 'NAVIGATION',
+        rows: [
+            { id: 'menu:main', title: '⬅ BACK', description: 'Return to the main menu.' },
+            ...(category.key === 'system' ? [{ id: 'menu:panel', title: 'BOT PANEL', description: 'Uptime, links and quick actions.' }] : [])
+        ]
+    });
+
+    await sendListMenu(sock, message.chat, { title: category.title, body, footer, buttonText: 'OPEN', sections }, {
+        quoted: message.raw,
+        fallbackText: [body, '', ...commands.map((c) => `• ${P}${c.name}${c.usage ? ` ${c.usage}` : ''}  ${c.description || ''}`), '', `${P}menu  → back`].join('\n')
+    });
+};
+
+const sendPanel = async (sock, message) => {
     const uptime = connectionManager.connectedAt ? formatDuration(Date.now() - connectionManager.connectedAt) : '0s';
     await sendButtons(
         sock,
         message.chat,
         {
             title: 'SYSTEM',
-            body: box('SYSTEM', [
-                `Bot: ${BOT}`,
-                `Version: ${version}`,
-                `Prefix: ${prefix}`,
-                `Uptime: ${uptime}`,
-                `Commands: ${commandHandler.commands.size}`
-            ]),
+            body: box('SYSTEM', [`Bot: ${BOT}`, `Version: ${version}`, `Prefix: ${P}`, `Uptime: ${uptime}`, `Commands: ${commandHandler.commands.size}`]),
             footer,
             buttons: [
-                { type: 'reply', text: 'BOT INFO', id: 'bot_info' },
-                { type: 'reply', text: 'HELP', id: 'help' },
-                { type: 'reply', text: 'OWNER', id: 'owner' },
+                { type: 'reply', text: 'STATS', id: `${P}stats` },
+                { type: 'reply', text: 'HELP', id: `${P}help` },
+                { type: 'reply', text: 'OWNER', id: 'menu:owner' },
                 { type: 'url', text: 'OPEN WEBSITE', url: website },
-                { type: 'copy', text: 'COPY CODE', code: `${prefix}menu` }
+                { type: 'copy', text: 'COPY CODE', code: `${P}menu` }
             ]
         },
         { quoted: message.raw }
     );
 };
 
-const interactions = {
-    ai_center: comingSoon('ai_center'),
-    smart_tools: comingSoon('smart_tools'),
-    media_lab: comingSoon('media_lab'),
-    knowledge: comingSoon('knowledge'),
-    automation: comingSoon('automation'),
-    system: sendSystemPanel,
+const showOwner = (message) => {
+    const main = getOwners().owner.number || config.owner.numbers[0];
+    return message.reply(box('OWNER', main ? [`wa.me/${main}`] : ['Owner not configured.']));
+};
 
-    bot_info: (sock, message) =>
-        message.reply(box('BOT INFO', [`Name: ${BOT}`, `Version: ${version}`, 'Engine: Baileys v7 (raoltech v1.1.0)', 'Runtime: Node.js'])),
-    help: (sock, message) =>
-        message.reply(box('HELP', [`${prefix}menu  → Main interactive menu`, `${prefix}ping  → Response time`, '', `Tip: ${prefix}menu <category id>`])),
-    owner: (sock, message) => {
-        const main = getOwners().owner.number || config.owner.numbers[0];
-        return message.reply(box('OWNER', main ? [`wa.me/${main}`] : ['Owner not configured.']));
-    }
+const route = (sock, message, ctx, parts) => {
+    const [what, arg] = parts;
+    if (what === 'cat') return sendCategory(sock, message, ctx, arg);
+    if (what === 'panel') return sendPanel(sock, message);
+    if (what === 'owner') return showOwner(message);
+    return sendMain(sock, message, ctx);
 };
 
 export default {
     name: 'menu',
-    aliases: ['help', 'start'],
-    category: 'general',
-    description: 'Display the NEO BOT main interactive menu.',
-    permissions: ['user'],
-    interactions,
+    aliases: ['start', 'list'],
+    category: 'system',
+    description: 'Interactive menu with every category and command.',
+    usage: '[category]',
+    examples: ['', 'system', 'panel'],
+    cooldown: 2,
 
-    async execute(sock, message, args) {
-        // Text fallback navigation: ".menu system" works even without interactive support.
+    onSelect: (sock, message, parts, ctx) => route(sock, message, ctx, parts),
+
+    async execute(sock, message, args, ctx) {
+        // Text navigation works even where interactive messages do not render.
         const target = args[0]?.toLowerCase();
-        if (target && interactions[target]) return interactions[target](sock, message);
-
-        await sendListMenu(sock, message.chat, MAIN_MENU, {
-            quoted: message.raw,
-            fallbackText: `${MAIN_MENU.body}\n\n${MAIN_MENU.sections
-                .flatMap((s) => s.rows)
-                .map((r) => `• ${prefix}menu ${r.id}  (${r.title})`)
-                .join('\n')}`
-        });
+        if (!target) return sendMain(sock, message, ctx);
+        if (target === 'panel' || target === 'owner') return route(sock, message, ctx, [target]);
+        return sendCategory(sock, message, ctx, target);
     }
 };

@@ -5,7 +5,7 @@ import { box } from '../utils/formatter.js';
 export default {
     name: 'myid',
     aliases: ['whoami', 'id'],
-    category: 'general',
+    category: 'system',
     description: 'Show your WhatsApp number, LID and owner status.',
     permissions: ['user'],
 

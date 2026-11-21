@@ -11,7 +11,8 @@ import sessionManager from './sessionManager.js';
 import authentication from './authentication.js';
 import { handleQr, resetQr } from './qr.js';
 import { requestPairing } from './pairing.js';
-import { rememberOwnMessage } from './messageHandler.js';
+import { rememberOwnMessage } from '../systems/security/dedupe.js';
+import { invalidateGroup, peekGroup } from '../systems/groups/groupCache.js';
 import { baileysLogger, child } from './logger.js';
 import { describeError } from '../utils/errors.js';
 
@@ -26,6 +27,7 @@ const REASONS = Object.fromEntries(Object.entries(DisconnectReason).map(([k, v])
  * Events:
  *  - 'open'          (sock)          connection established
  *  - 'messages'      (sock, upsert)  messages.upsert passthrough
+ *  (group metadata cache is invalidated here on groups.update / group-participants.update)
  *  - 'auth-required' ()              session missing/revoked → choose method again
  *  - 'stopped'       (reason)        will not reconnect (fatal)
  */
@@ -102,7 +104,9 @@ class ConnectionManager extends EventEmitter {
                 markOnlineOnConnect: false,
                 syncFullHistory: false,
                 generateHighQualityLinkPreview: false,
-                getMessage: async () => undefined
+                getMessage: async () => undefined,
+                // Reuse group metadata already fetched for permission checks.
+                cachedGroupMetadata: async (jid) => peekGroup(jid)
             });
             // Track ids of everything the bot sends (see messageHandler).
             const send = sock.sendMessage.bind(sock);
@@ -127,6 +131,9 @@ class ConnectionManager extends EventEmitter {
             });
             sock.ev.on('connection.update', (update) => this.#onConnectionUpdate(sock, update));
             sock.ev.on('messages.upsert', (upsert) => this.emit('messages', sock, upsert));
+            // Admin changes, joins, leaves, subject changes → cached metadata is stale.
+            sock.ev.on('groups.update', (updates) => updates.forEach((u) => invalidateGroup(u.id)));
+            sock.ev.on('group-participants.update', (update) => invalidateGroup(update.id));
         } catch (error) {
             this.sock = null;
             throw error; // encryption / integrity errors must stop authentication safely

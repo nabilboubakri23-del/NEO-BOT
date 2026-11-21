@@ -1,4 +1,4 @@
-# NEO BOT — V1.0.0
+# NEO BOT — V1.1.0 (Core Evolution)
 
 Modular WhatsApp bot. Phase 1: connection, dual authentication, encrypted sessions,
 auto-reconnect, message handling, real interactive list menu, `.menu` and `.ping`.
@@ -41,13 +41,48 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 - `npm run reset-session` deletes the session.
 
 ## Commands
-| Command | Description |
-|---|---|
-| `.menu` | Interactive list with the **ORDERS** button (2 sections, 6 rows). `.menu <id>` is the text fallback. |
-| `.ping` | Real round-trip time + connection status (edits its own message). |
+| Command | Access | Description |
+|---|---|---|
+| `.menu [category]` | everyone | Multi-level interactive menu built from the registered commands (category → commands → BACK). |
+| `.help [command]` | everyone | Generated help; `.help ping` shows usage, aliases, access and cooldown. |
+| `.ping` | everyone | Round-trip time + connection status. |
+| `.stats` | everyone | Uptime, usage counters, top commands, server info. |
+| `.myid` | everyone | Your number, LID and owner status. |
+| `.bot on/off/status` | group admins | Switch the bot off in one chat. |
+| `.settings [set/reset/info]` | owners | Change bot settings from WhatsApp. |
+| `.ban / .unban / .banlist` | owners | Banned users are ignored everywhere. |
+| `.owner` | owners | Manage owners (data/owners.json). |
+| `.dev` | owners | Remote developer console. |
 
-Selection ids: `ai_center`, `smart_tools`, `media_lab`, `knowledge`, `automation`, `system`.
-`system` opens a panel with quick replies (BOT INFO / HELP / OWNER), a URL button and a COPY CODE button.
+## Core Evolution (v1.1.0)
+- **Command Engine V2** (`core/commandHandler.js`, `core/commandParser.js`): quoted args, `--flags`, multi-line body,
+  definition validation on load, alias conflict protection, atomic reload, "did you mean" suggestions,
+  `usage` / `examples` / `minArgs` / `cooldown` / `hidden` / `allowWhenOff` fields, `ctx` as 4th argument.
+- **Permissions** (`systems/permissions/`): `public`, `owner`, `mainOwner`, `admin` (group admin), `botAdmin`,
+  `group`, `private`, combined with AND. Group metadata is cached (`systems/groups/groupCache.js`) and reused by the socket.
+- **Policy**: bot mode (`public | private | groups | inbox`), per-chat on/off, bans. Owners always pass.
+- **Anti-spam + cooldowns** (`systems/security/rateLimiter.js`): each limit is announced once, then silent.
+- **Anti-duplicate** (`systems/security/dedupe.js`).
+- **Unified interactions**: ids `.<command>` run a command; `<command>:<a>:<b>` call that command's `onSelect`.
+- **Central error handler**: `UsageError` → usage card, `UserError` → clean message, crashes → reference code (details for owners only).
+- **Settings / users / stats** stored through `systems/database/docStore.js` (MongoDB `documents` collection when `MONGODB_URI` is set, otherwise `data/*.json`).
+- **Formatter** (`utils/formatter.js`): `box`, `fields`, `section`, `success`, `failure`, `usage`.
+
+### Writing a command
+```js
+export default {
+    name: 'echo',
+    category: 'tools',
+    description: 'Repeat text.',
+    usage: '<text>',
+    minArgs: 1,
+    cooldown: 3,
+    permissions: ['public'],
+    async execute(sock, message, args, ctx) {
+        await message.reply(ctx.argsText);
+    }
+};
+```
 
 ## Structure
 ```
@@ -59,7 +94,11 @@ core/qr.js                 QR rendering (terminal + image)
 core/setupServer.js        private web setup page + /health
 core/sessionManager.js     encrypted Baileys auth-state adapter
 core/messageHandler.js     messages.upsert → filter → route
-core/commandHandler.js     command loader, permissions, interactive selections
+core/commandHandler.js     command engine V2 (pipeline, errors, interactions)
+core/commandParser.js      args / flags / suggestions
+systems/permissions/       permission levels + bot policy
+systems/security/          encryption, dedupe, rate limiter
+systems/settings/ users/ stats/ database/ groups/
 core/logger.js             pino with redaction
 systems/security/encryption.js
 systems/menus/interactiveMenu.js

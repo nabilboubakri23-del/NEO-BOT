@@ -102,16 +102,24 @@ const needCode = (message, usage) =>
 
 const TEMPLATE = (name) => `import config from '../config/config.js';
 import { box } from '../utils/formatter.js';
+import { UsageError, UserError } from '../utils/errors.js';
 
 export default {
     name: '${name}',
     aliases: [],
-    category: 'general',
+    category: 'tools', // ai | tools | media | knowledge | automation | group | system | owner
     description: 'Describe what ${name} does.',
-    permissions: ['user'], // or ['owner']
+    usage: '<text>',
+    examples: ['hello'],
+    permissions: ['public'], // owner | mainOwner | admin | botAdmin | group | private
+    cooldown: 3, // seconds
+    minArgs: 0, // fewer args → usage reply
 
-    async execute(sock, message, args) {
-        await message.reply(box(config.bot.name, ['Hello from ${name}!', \`Args: \${args.join(' ') || 'none'}\`]));
+    // ctx: { args, flags, argsText, body, prefix, usedName, access }
+    async execute(sock, message, args, ctx) {
+        // throw new UsageError()           → shows the usage above
+        // throw new UserError('Not found') → clean error message
+        await message.reply(box(config.bot.name, ['Hello from ${name}!', \`Args: \${ctx.argsText || 'none'}\`]));
     }
 };
 `;

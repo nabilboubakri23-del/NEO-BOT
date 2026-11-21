@@ -11,6 +11,10 @@ import { assertEncryptionReady } from './systems/security/encryption.js';
 import { describeError } from './utils/errors.js';
 import { terminalFrame } from './utils/formatter.js';
 import { createClaimCode, loadOwners } from './systems/owners/ownerStore.js';
+import docStore from './systems/database/docStore.js';
+import { loadSettings } from './systems/settings/settingsStore.js';
+import { loadUsers } from './systems/users/userStore.js';
+import { loadStats } from './systems/stats/statsStore.js';
 
 const log = logger.child({ module: 'main' });
 
@@ -32,6 +36,7 @@ const fatal = async (message, error) => {
     await connectionManager.stop();
     await stopSetupServer();
     await sessionManager.close();
+    await docStore.close().catch(() => {});
     process.exit(1);
 };
 
@@ -46,6 +51,8 @@ const main = async () => {
 
     assertEncryptionReady();
     loadOwners();
+    await docStore.init();
+    await Promise.all([loadSettings(), loadUsers(), loadStats()]);
     await commandHandler.load();
     startSetupServer();
     startKeepAlive();
@@ -83,6 +90,7 @@ const shutdown = async (signal) => {
     await connectionManager.stop();
     await stopSetupServer();
     await sessionManager.close();
+    await docStore.close().catch(() => {});
     process.exit(0);
 };
 

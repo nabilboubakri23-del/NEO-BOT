@@ -5,7 +5,7 @@ import { box } from '../utils/formatter.js';
 export default {
     name: 'ping',
     aliases: [],
-    category: 'general',
+    category: 'system',
     description: 'Measure bot response time.',
     permissions: ['user'],
 

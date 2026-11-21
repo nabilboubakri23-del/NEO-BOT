@@ -1,8 +1,8 @@
-import { jidNormalizedUser, normalizeMessageContent } from 'baileys';
 import config from '../config/config.js';
 import { child } from '../core/logger.js';
 import * as owners from '../systems/owners/ownerStore.js';
 import { box } from '../utils/formatter.js';
+import { resolveUserTarget } from '../utils/targets.js';
 
 /**
  * .owner — manage who has owner permissions.
@@ -16,23 +16,7 @@ const CMD = `${P}owner`;
 const panel = (title, lines) => box(title, lines);
 const describe = (entry) => [entry.number && `+${entry.number}`, entry.lid && `LID ${entry.lid}`].filter(Boolean).join('  ') || 'not set';
 
-/** Who the command targets: a typed number, a mention, or the author of the replied message. */
-const resolveTarget = async (sock, message, arg) => {
-    const content = normalizeMessageContent(message.raw.message);
-    const context = content?.extendedTextMessage?.contextInfo;
-    const jid = context?.mentionedJid?.[0] || (arg ? null : context?.participant);
-
-    if (!jid) {
-        const number = String(arg || '').replace(/\D/g, '');
-        return number.length >= 6 ? { number } : null;
-    }
-    const normalized = jidNormalizedUser(jid);
-    const user = normalized.split('@')[0];
-    if (!normalized.endsWith('@lid')) return { number: user };
-
-    const pn = await sock.signalRepository?.lidMapping?.getPNForLID(normalized).catch(() => null);
-    return { lid: user, number: pn ? jidNormalizedUser(pn).split('@')[0] : '' };
-};
+const resolveTarget = resolveUserTarget;
 
 const actions = {
     async list(sock, message) {
@@ -97,6 +81,7 @@ export default {
     aliases: ['owners', 'sudo'],
     category: 'owner',
     description: 'Manage owners: list, add, remove, claim.',
+    usage: '[list|add|del|reload|claim] [number|@mention]',
     // Checked per action: "claim" must be usable before anyone is an owner.
     permissions: ['user'],
 
