@@ -11,6 +11,7 @@ import sessionManager from './sessionManager.js';
 import authentication from './authentication.js';
 import { handleQr, resetQr } from './qr.js';
 import { requestPairing } from './pairing.js';
+import { rememberOwnMessage } from './messageHandler.js';
 import { baileysLogger, child } from './logger.js';
 import { describeError } from '../utils/errors.js';
 
@@ -97,12 +98,27 @@ class ConnectionManager extends EventEmitter {
                     keys: makeCacheableSignalKeyStore(state.keys, baileysLogger)
                 },
                 logger: baileysLogger,
-                browser: Browsers.ubuntu('Chrome'),
+                browser: Browsers.macOS('Chrome'),
                 markOnlineOnConnect: false,
                 syncFullHistory: false,
                 generateHighQualityLinkPreview: false,
                 getMessage: async () => undefined
             });
+            // Track ids of everything the bot sends (see messageHandler).
+            const send = sock.sendMessage.bind(sock);
+            sock.sendMessage = async (...args) => {
+                const sent = await send(...args);
+                rememberOwnMessage(sent?.key?.id);
+                return sent;
+            };
+            const relay = sock.relayMessage?.bind(sock);
+            if (relay) {
+                sock.relayMessage = async (jid, msg, opts = {}) => {
+                    const id = await relay(jid, msg, opts);
+                    rememberOwnMessage(opts.messageId || id);
+                    return id;
+                };
+            }
             this.sock = sock;
             log.info({ attempt: this.attempts }, 'Socket initialized. Connecting to WhatsApp...');
 

@@ -55,7 +55,8 @@ class CommandHandler {
     }
 
     isOwner(message) {
-        return config.owner.numbers.includes(message.senderNumber);
+        // The linked WhatsApp account itself is always the owner.
+        return message.fromMe || config.owner.numbers.includes(message.senderNumber);
     }
 
     canRun(command, message) {

@@ -19,6 +19,14 @@ const MAX_AGE_SECONDS = 60; // ignore backlog delivered after downtime
 const DEDUPE_LIMIT = 2000;
 
 const seen = new Map(); // message id → timestamp (insertion ordered)
+const sentByBot = new Set(); // ids of messages the bot itself sent
+
+/** Records a message id the bot sent, so its own replies never re-trigger commands. */
+export const rememberOwnMessage = (id) => {
+    if (!id) return;
+    sentByBot.add(id);
+    if (sentByBot.size > DEDUPE_LIMIT) sentByBot.delete(sentByBot.values().next().value);
+};
 
 const isDuplicate = (id) => {
     if (!id) return false;
@@ -85,6 +93,7 @@ const serialize = (sock, raw) => {
         chat,
         isGroup,
         sender,
+        fromMe: Boolean(raw.key.fromMe),
         senderNumber: (senderPn || '').split('@')[0],
         pushName: raw.pushName || '',
         type,
@@ -108,7 +117,9 @@ export const handleUpsert = async (sock, { messages, type }) => {
     for (const raw of messages) {
         try {
             if (!raw?.message || !raw.key?.remoteJid) continue;
-            if (raw.key.fromMe) continue; // ignore the bot's own messages
+            // The linked account's own messages (e.g. the owner typing in "Message yourself")
+            // are accepted, but never the bot's own replies.
+            if (raw.key.fromMe && sentByBot.has(raw.key.id)) continue;
             const jid = raw.key.remoteJid;
             if (isJidStatusBroadcast(jid) || isJidBroadcast(jid) || isJidNewsletter(jid)) continue;
             if (isDuplicate(raw.key.id)) continue;
@@ -118,6 +129,8 @@ export const handleUpsert = async (sock, { messages, type }) => {
 
             const message = serialize(sock, raw);
             if (!message) continue;
+
+            if (message.fromMe && !message.selectionId && !message.text.startsWith(config.bot.prefix)) continue;
 
             if (message.selectionId) {
                 await commandHandler.handleSelection(sock, message);
