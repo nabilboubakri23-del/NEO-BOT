@@ -98,3 +98,20 @@ Steps:
 4. Open `https://<your-service>.onrender.com/?token=<WEB_SETUP_TOKEN>` and link with QR or phone number.
 
 Note: 750 free instance hours per month cover one service running all month.
+
+## Remote developer console (`.dev`)
+
+Owner-only (the linked account itself, or numbers in `OWNER_NUMBERS`). Disable with `DEVTOOLS_ENABLED=false`.
+
+| Command | What it does |
+| --- | --- |
+| `.dev` | Console panel |
+| `.dev cmds` / `ls [dir]` / `tree [dir]` | Browse commands and folders |
+| `.dev cat <file\|cmd> [page]` / `get` / `find <text>` | Read, download or search code |
+| `.dev template [name]` | Ready command skeleton |
+| `.dev add <name>` + code | New command, hot-loaded |
+| `.dev edit <file\|cmd>` + code / `new <path>` + code | Replace or create a file |
+| `.dev del <file\|cmd>` / `restore` / `backups` | Delete to trash, undo, versions |
+| `.dev reload` | Hot-reload commands |
+
+Code goes on the lines under the command, in a `.js` file sent with the command as its caption, or in a message you reply to. Every change is syntax-checked (and command files import-checked) before saving; `.env`, sessions, `.git` and `node_modules` are never readable or writable. On Render, files changed this way are lost on the next deploy; edit through GitHub for permanent changes.

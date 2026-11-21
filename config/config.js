@@ -69,6 +69,11 @@ const config = Object.freeze({
         intervalMs: toInt(process.env.KEEP_ALIVE_INTERVAL_MS, 10 * 60 * 1000)
     }),
 
+    devtools: Object.freeze({
+        // Owner-only remote code console (.dev). Set DEVTOOLS_ENABLED=false to disable it.
+        enabled: toBool(process.env.DEVTOOLS_ENABLED, true)
+    }),
+
     logging: Object.freeze({
         level: process.env.LOG_LEVEL || 'info',
         baileysLevel: process.env.BAILEYS_LOG_LEVEL || 'silent',

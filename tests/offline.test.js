@@ -91,3 +91,24 @@ test('ORDERS list builds a real native-flow single_select message', async () => 
     assert.equal(params.sections[0].rows[0].id, 'ai_center');
     assert.equal(im.header.title, 'NEO BOT');
 });
+
+test('devtools: path guard blocks escapes and secrets', async () => {
+    const { resolveSafe } = await import('../systems/devtools/workspace.js');
+    assert.equal(resolveSafe('commands/ping.js').relative, path.join('commands', 'ping.js'));
+    assert.throws(() => resolveSafe('../etc/passwd'), /outside/);
+    assert.throws(() => resolveSafe('.env'), /protected/);
+    assert.throws(() => resolveSafe('storage/sessions/creds.json'), /protected/);
+    assert.throws(() => resolveSafe('node_modules/baileys/package.json'), /protected/);
+    assert.equal(resolveSafe('.env.example').relative, '.env.example');
+});
+
+test('devtools: command validator accepts good code and rejects bad code', async () => {
+    const { checkCommandModule } = await import('../systems/devtools/codeValidator.js');
+    const target = path.join(process.cwd(), 'commands', 'zz-test.js');
+    const good = await checkCommandModule(target, "export default { name: 'zz', async execute() {} };");
+    assert.equal(good.ok, true);
+    assert.equal(good.command.name, 'zz');
+    assert.equal((await checkCommandModule(target, 'export default { name: ')).ok, false);
+    assert.equal((await checkCommandModule(target, "export default { name: 'zz' };")).ok, false);
+    assert.equal((await readdir(path.dirname(target))).some((f) => f.startsWith('.staging-')), false);
+});

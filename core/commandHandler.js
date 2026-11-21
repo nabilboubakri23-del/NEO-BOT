@@ -19,34 +19,50 @@ class CommandHandler {
         this.commands = new Map();
         this.aliases = new Map();
         this.interactions = new Map();
+        this.files = new Map(); // command name → file path relative to the project root
+        this.failures = []; // { file, error } from the last load
+        this.loadCount = 0;
     }
 
     async load(dir = path.join(config.rootDir, 'commands')) {
         this.commands.clear();
         this.aliases.clear();
         this.interactions.clear();
+        this.files.clear();
+        this.failures = [];
+        // ESM caches modules by URL: a version query forces fresh code on every reload.
+        const version = ++this.loadCount;
 
         const files = (await readdir(dir, { recursive: true })).filter((f) => f.endsWith('.js'));
         for (const file of files) {
             try {
-                const mod = (await import(pathToFileURL(path.join(dir, file)).href)).default;
+                const mod = (await import(`${pathToFileURL(path.join(dir, file)).href}?v=${version}`)).default;
                 if (!mod?.name || typeof mod.execute !== 'function') {
                     log.warn({ file }, 'Skipped invalid command file.');
                     continue;
                 }
                 if (mod.enabled === false) continue;
                 const name = mod.name.toLowerCase();
+                if (this.commands.has(name)) log.warn({ name, file }, 'Duplicate command name overwritten.');
                 this.commands.set(name, mod);
+                this.files.set(name, path.relative(config.rootDir, path.join(dir, file)));
                 for (const alias of mod.aliases || []) this.aliases.set(alias.toLowerCase(), name);
                 for (const [id, handler] of Object.entries(mod.interactions || {})) {
                     if (this.interactions.has(id)) log.warn({ id }, 'Duplicate interaction id overwritten.');
                     this.interactions.set(id, { command: name, handler });
                 }
             } catch (error) {
+                this.failures.push({ file, error: describeError(error) });
                 log.error({ file }, `Failed to load command: ${describeError(error)}`);
             }
         }
         log.info({ commands: this.commands.size, interactions: this.interactions.size }, 'Commands loaded.');
+        return { commands: this.commands.size, interactions: this.interactions.size, failures: this.failures };
+    }
+
+    /** Re-imports every command file without restarting the bot. */
+    reload() {
+        return this.load();
     }
 
     get(name) {
