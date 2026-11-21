@@ -5,7 +5,7 @@ import authentication from './core/authentication.js';
 import sessionManager from './core/sessionManager.js';
 import commandHandler from './core/commandHandler.js';
 import { handleUpsert } from './core/messageHandler.js';
-import { startSetupServer, stopSetupServer } from './core/setupServer.js';
+import { setUnlinkHandler, startSetupServer, stopSetupServer } from './core/setupServer.js';
 import { startKeepAlive, stopKeepAlive } from './core/keepAlive.js';
 import { assertEncryptionReady } from './systems/security/encryption.js';
 import { describeError } from './utils/errors.js';
@@ -57,6 +57,7 @@ const main = async () => {
     await Promise.all([loadSettings(), loadUsers(), loadStats(), loadPermissions()]);
     pluginManager.attach(commandHandler);
     await pluginManager.load(); // also (re)loads commands, merging plugin commands in
+    setUnlinkHandler(() => connectionManager.unlink());
     startSetupServer();
     startKeepAlive();
 

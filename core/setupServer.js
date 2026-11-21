@@ -72,6 +72,8 @@ ol{padding-left:20px;color:#8696a0;line-height:1.7}.err{color:#f15c6d}.ok{color:
 <div id="pair" class="card hidden"><p>Pairing code for <b id="pPhone"></b></p><div class="code" id="pCode"></div>
   <ol><li>Open WhatsApp</li><li>Go to Linked Devices</li><li>Select Link a Device</li><li>Select "Link with phone number instead"</li><li>Enter the code above</li></ol></div>
 <div id="state" class="card"></div>
+<div id="unlink" class="card hidden"><p>Link a different number: this logs out the current one and deletes the saved session.</p>
+  <button class="alt" onclick="unlink()">Unlink &amp; link another number</button></div>
 </main><script>
 const token=new URLSearchParams(location.search).get('token')||'';
 const H={'Authorization':'Bearer '+token,'Content-Type':'application/json'};
@@ -79,6 +81,9 @@ const $=id=>document.getElementById(id);
 async function choose(method){$('formErr').textContent='';
   const r=await fetch('/auth/start',{method:'POST',headers:H,body:JSON.stringify({method,phone:$('phone').value})});
   const j=await r.json(); if(!r.ok) $('formErr').textContent=j.error||'Request failed'; poll();}
+async function unlink(){ if(!confirm('Unlink the current WhatsApp number?'))return;
+  const r=await fetch('/auth/unlink',{method:'POST',headers:H}); const j=await r.json();
+  $('state').innerHTML=r.ok?'Unlinking… the connection choice will appear in a few seconds.':'<p class="err">'+(j.error||'Failed')+'</p>'; setTimeout(poll,4000);}
 async function poll(){
   const r=await fetch('/auth/status',{headers:H});
   if(r.status===401){$('state').innerHTML='<p class="err">Unauthorized. Open this page with ?token=YOUR_WEB_SETUP_TOKEN</p>';return;}
@@ -86,6 +91,7 @@ async function poll(){
   $('choose').classList.toggle('hidden',s.state!=='awaiting_choice');
   $('qr').classList.toggle('hidden',s.state!=='qr_ready');
   $('pair').classList.toggle('hidden',s.state!=='pairing_code');
+  $('unlink').classList.toggle('hidden',!['connected','error','idle','waiting_qr'].includes(s.state));
   if(s.qrDataUrl) $('qrImg').src=s.qrDataUrl;
   if(s.pairingCode){$('pCode').textContent=s.pairingCode;$('pPhone').textContent=s.phoneMasked||'';}
   const labels={idle:'Starting…',awaiting_choice:'Waiting for your choice.',waiting_qr:'Connecting to WhatsApp…',
@@ -97,6 +103,12 @@ poll();setInterval(poll,3000);
 </script></body></html>`;
 
 let server = null;
+let unlinkHandler = null;
+
+/** Registers the function that unlinks the current number (set by index.js). */
+export const setUnlinkHandler = (fn) => {
+    unlinkHandler = fn;
+};
 
 export const startSetupServer = () => {
     if (server || !config.setupServer.enabled) return null;
@@ -133,6 +145,12 @@ export const startSetupServer = () => {
             if (req.method === 'POST' && url.pathname === '/auth/start') {
                 const body = JSON.parse((await readBody(req)) || '{}');
                 authentication.submitChoice(body.method, body.phone);
+                return send(res, 200, { ok: true });
+            }
+            if (req.method === 'POST' && url.pathname === '/auth/unlink') {
+                if (!unlinkHandler) return send(res, 503, { error: 'Unlink not available' });
+                log.warn('Unlink requested from the web setup page.');
+                unlinkHandler().catch((error) => log.error(`Unlink failed: ${error.message}`));
                 return send(res, 200, { ok: true });
             }
             return send(res, 404, { error: 'Not found' });

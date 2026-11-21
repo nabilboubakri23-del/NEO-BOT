@@ -231,9 +231,14 @@ class ConnectionManager extends EventEmitter {
                 return this.emit('stopped', 'connection_replaced');
 
             case DisconnectReason.forbidden:
-                this.state = 'stopped';
-                log.error('WhatsApp refused this account (forbidden). Not reconnecting.');
-                return this.emit('stopped', 'forbidden');
+                // The number is banned or restricted: its session is useless. Clear it so
+                // another number can be linked from the setup page without a redeploy.
+                log.error('WhatsApp refused this account (forbidden). Deleting session; link another number.');
+                authentication.update({ state: 'error', error: 'WhatsApp blocked this number. Link another number.' });
+                await sessionManager.deleteSession();
+                this.state = 'closed';
+                this.authChoice = null;
+                return this.emit('auth-required');
 
             default:
                 break;
@@ -296,6 +301,25 @@ class ConnectionManager extends EventEmitter {
         clearTimeout(this.reconnectTimer);
         this.#teardown();
         this.state = 'stopped';
+    }
+
+    /**
+     * Unlinks the current number (logout if possible), deletes the session and
+     * returns to the authentication selection so another number can be linked.
+     */
+    async unlink() {
+        this.stopping = true;
+        clearTimeout(this.reconnectTimer);
+        // A banned or dead socket may never answer: do not wait forever for logout.
+        await Promise.race([Promise.resolve(this.sock?.logout?.()).catch(() => {}), new Promise((r) => setTimeout(r, 5000))]);
+        this.#teardown();
+        await sessionManager.deleteSession();
+        this.stopping = false;
+        this.state = 'closed';
+        this.authChoice = null;
+        this.attempts = 0;
+        log.warn('Unlinked by the owner. Waiting for a new number to be linked.');
+        this.emit('auth-required');
     }
 
     /** Logs out from WhatsApp and deletes the local session. */
