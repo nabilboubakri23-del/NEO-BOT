@@ -108,6 +108,22 @@ const serialize = (sock, raw) => {
 };
 
 /**
+ * v7 can address a sender only by LID (e.g. in groups). When no phone-number
+ * JID came with the message, ask the library's LID mapping store for it.
+ */
+const resolvePhoneNumber = async (sock, message) => {
+    const jid = message.isGroup ? message.raw.key.participantAlt || message.raw.key.participant : message.raw.key.remoteJidAlt || message.chat;
+    message.senderLid = message.sender?.endsWith('@lid') ? message.sender.split('@')[0] : '';
+    if (!String(jid || '').endsWith('@lid')) return;
+    try {
+        const pn = await sock.signalRepository?.lidMapping?.getPNForLID(jid);
+        if (pn) message.senderNumber = jidNormalizedUser(pn).split('@')[0];
+    } catch (error) {
+        log.debug(`LID lookup failed: ${describeError(error)}`);
+    }
+};
+
+/**
  * messages.upsert entry point.
  * Incoming → serialize → filter → command / interaction detection → commandHandler.
  */
@@ -129,6 +145,7 @@ export const handleUpsert = async (sock, { messages, type }) => {
 
             const message = serialize(sock, raw);
             if (!message) continue;
+            await resolvePhoneNumber(sock, message);
 
             if (message.fromMe && !message.selectionId && !message.text.startsWith(config.bot.prefix)) continue;
 
