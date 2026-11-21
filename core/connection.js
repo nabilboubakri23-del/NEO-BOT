@@ -1,0 +1,290 @@
+import { EventEmitter } from 'node:events';
+import { Boom } from '@hapi/boom';
+import makeWASocket, {
+    Browsers,
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    makeCacheableSignalKeyStore
+} from 'baileys';
+import config from '../config/config.js';
+import sessionManager from './sessionManager.js';
+import authentication from './authentication.js';
+import { handleQr, resetQr } from './qr.js';
+import { requestPairing } from './pairing.js';
+import { baileysLogger, child } from './logger.js';
+import { describeError } from '../utils/errors.js';
+
+const log = child('connection');
+
+const REASONS = Object.fromEntries(Object.entries(DisconnectReason).map(([k, v]) => [v, k]));
+
+/**
+ * Connection Manager.
+ * Owns the single WhatsApp socket and its lifecycle.
+ *
+ * Events:
+ *  - 'open'          (sock)          connection established
+ *  - 'messages'      (sock, upsert)  messages.upsert passthrough
+ *  - 'auth-required' ()              session missing/revoked → choose method again
+ *  - 'stopped'       (reason)        will not reconnect (fatal)
+ */
+class ConnectionManager extends EventEmitter {
+    constructor() {
+        super();
+        this.sock = null;
+        this.state = 'idle'; // idle | connecting | open | reconnecting | closed | stopped
+        this.authChoice = null;
+        this.pairingRequested = false;
+        this.attempts = 0;
+        this.reconnectTimer = null;
+        this.starting = false;
+        this.stopping = false;
+        this.version = null;
+        this.connectedAt = null;
+    }
+
+    get isOpen() {
+        return this.state === 'open';
+    }
+
+    /**
+     * Starts the connection. `authChoice` is null when restoring a saved session.
+     */
+    async start(authChoice = null) {
+        if (this.starting || this.sock) {
+            log.warn('Connection already active. Duplicate socket prevented.');
+            return;
+        }
+        this.authChoice = authChoice;
+        this.stopping = false;
+        this.attempts = 0;
+        resetQr();
+        await this.#connect();
+    }
+
+    async #resolveVersion() {
+        if (this.version) return this.version;
+        try {
+            const result = await Promise.race([
+                fetchLatestBaileysVersion(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+            ]);
+            this.version = result.version;
+        } catch {
+            this.version = undefined; // Baileys falls back to its bundled version
+        }
+        return this.version;
+    }
+
+    async #connect() {
+        if (this.starting || this.sock) return;
+        this.starting = true;
+        this.state = this.attempts ? 'reconnecting' : 'connecting';
+        this.pairingRequested = false;
+
+        try {
+            const { state, saveCreds } = await sessionManager.loadAuthState();
+            const version = await this.#resolveVersion();
+
+            if (this.authChoice && !state.creds.registered) {
+                authentication.update({ state: 'waiting_qr', method: this.authChoice.method, error: null });
+            }
+
+            const sock = makeWASocket({
+                ...(version ? { version } : {}),
+                auth: {
+                    creds: state.creds,
+                    keys: makeCacheableSignalKeyStore(state.keys, baileysLogger)
+                },
+                logger: baileysLogger,
+                browser: Browsers.ubuntu('Chrome'),
+                markOnlineOnConnect: false,
+                syncFullHistory: false,
+                generateHighQualityLinkPreview: false,
+                getMessage: async () => undefined
+            });
+            this.sock = sock;
+            log.info({ attempt: this.attempts }, 'Socket initialized. Connecting to WhatsApp...');
+
+            sock.ev.on('creds.update', () => {
+                saveCreds().catch((error) => log.error(`Failed to save credentials: ${describeError(error)}`));
+            });
+            sock.ev.on('connection.update', (update) => this.#onConnectionUpdate(sock, update));
+            sock.ev.on('messages.upsert', (upsert) => this.emit('messages', sock, upsert));
+        } catch (error) {
+            this.sock = null;
+            throw error; // encryption / integrity errors must stop authentication safely
+        } finally {
+            this.starting = false;
+        }
+    }
+
+    async #onConnectionUpdate(sock, { connection, lastDisconnect, qr }) {
+        if (sock !== this.sock) return; // stale socket event
+
+        if (qr) {
+            const choice = this.authChoice;
+            if (!choice) {
+                // No saved session and no method chosen: never print a QR silently.
+                log.warn('Session not authenticated. Authentication selection required.');
+                this.#teardown();
+                this.emit('auth-required');
+                return;
+            }
+            if (choice.method === 'qr') {
+                await handleQr(qr);
+            } else if (choice.method === 'phone' && !this.pairingRequested && !sock.authState.creds.registered) {
+                // The first QR event means the handshake is complete → safe to request a pairing code.
+                this.pairingRequested = true;
+                const ok = await requestPairing(sock, choice.phoneNumber);
+                if (!ok) {
+                    this.#teardown();
+                    await sessionManager.deleteSession();
+                    this.emit('auth-required');
+                }
+            }
+        }
+
+        if (connection === 'open') {
+            const wasAuthenticating = Boolean(this.authChoice);
+            this.state = 'open';
+            this.attempts = 0;
+            this.authChoice = null;
+            this.connectedAt = Date.now();
+            authentication.update({ state: 'connected', qrDataUrl: null, pairingCode: null, error: null });
+            if (wasAuthenticating) {
+                console.log('\n[ NEO BOT ]\nAuthentication successful.\nWhatsApp connected.\nSession saved successfully.\n');
+                log.info('Authentication successful.');
+            }
+            log.info({ files: await sessionManager.fileCount() }, 'WhatsApp connection is open.');
+            this.emit('open', sock);
+            return;
+        }
+
+        if (connection === 'close') {
+            await this.#onClose(lastDisconnect);
+        }
+    }
+
+    async #onClose(lastDisconnect) {
+        const code = new Boom(lastDisconnect?.error)?.output?.statusCode;
+        const reason = REASONS[code] || 'unknown';
+        const registered = Boolean(this.sock?.authState?.creds?.registered || this.sock?.authState?.creds?.account);
+        const wasAuthenticating = Boolean(this.authChoice);
+        this.#teardown();
+
+        if (this.stopping) {
+            this.state = 'stopped';
+            log.info('Connection closed (shutdown).');
+            return;
+        }
+
+        log.warn({ code, reason }, 'Connection closed.');
+
+        switch (code) {
+            case DisconnectReason.restartRequired:
+                // Normal right after a successful link: reconnect immediately with saved creds.
+                log.info('Restart required by WhatsApp. Reconnecting now.');
+                return this.#scheduleReconnect(0);
+
+            case DisconnectReason.loggedOut:
+            case DisconnectReason.badSession:
+            case DisconnectReason.multideviceMismatch:
+                log.error({ reason }, 'Session revoked or invalid. Deleting session.');
+                authentication.update({ state: 'error', error: 'Session revoked. Please link WhatsApp again.' });
+                await sessionManager.deleteSession();
+                this.state = 'closed';
+                this.authChoice = null;
+                return this.emit('auth-required');
+
+            case DisconnectReason.connectionReplaced:
+                this.state = 'stopped';
+                log.error('Another NEO BOT instance opened this session. Stopping to avoid a reconnect fight.');
+                return this.emit('stopped', 'connection_replaced');
+
+            case DisconnectReason.forbidden:
+                this.state = 'stopped';
+                log.error('WhatsApp refused this account (forbidden). Not reconnecting.');
+                return this.emit('stopped', 'forbidden');
+
+            default:
+                break;
+        }
+
+        if (wasAuthenticating && !registered) {
+            // QR codes exhausted or pairing code expired before the link completed.
+            log.warn('Authentication was not completed in time (QR or pairing code expired).');
+            authentication.update({ state: 'error', error: 'Code expired before linking. Please try again.' });
+            await sessionManager.deleteSession();
+            this.state = 'closed';
+            this.authChoice = null;
+            return this.emit('auth-required');
+        }
+
+        // Network loss, timeouts, server errors → controlled reconnection.
+        this.#scheduleReconnect();
+    }
+
+    #scheduleReconnect(forcedDelay) {
+        const { baseDelayMs, maxDelayMs, maxAttempts } = config.reconnect;
+        if (maxAttempts && this.attempts >= maxAttempts) {
+            this.state = 'stopped';
+            log.error({ attempts: this.attempts }, 'Maximum reconnection attempts reached. Stopping.');
+            return this.emit('stopped', 'max_attempts');
+        }
+        const delay = forcedDelay ?? Math.min(maxDelayMs, baseDelayMs * 2 ** this.attempts) + Math.floor(Math.random() * 1000);
+        this.attempts += 1;
+        this.state = 'reconnecting';
+        log.info({ attempt: this.attempts, delayMs: delay }, 'Reconnecting...');
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = setTimeout(() => {
+            this.#connect().catch((error) => {
+                log.error(`Reconnect failed: ${describeError(error)}`);
+                if (error.code === 'SESSION_INTEGRITY_ERROR' || error.code === 'ENCRYPTION_ERROR') {
+                    this.state = 'stopped';
+                    return this.emit('stopped', 'session_integrity');
+                }
+                this.#scheduleReconnect();
+            });
+        }, delay);
+    }
+
+    #teardown() {
+        const sock = this.sock;
+        this.sock = null;
+        if (this.state === 'open') this.state = 'closed';
+        if (!sock) return;
+        try {
+            // Events from this socket are ignored afterwards (stale check in #onConnectionUpdate).
+            Promise.resolve(sock.end(undefined)).catch(() => {});
+        } catch {
+            /* already closed */
+        }
+    }
+
+    /** Graceful shutdown: closes the socket without logging out. */
+    async stop() {
+        this.stopping = true;
+        clearTimeout(this.reconnectTimer);
+        this.#teardown();
+        this.state = 'stopped';
+    }
+
+    /** Logs out from WhatsApp and deletes the local session. */
+    async logout() {
+        this.stopping = true;
+        clearTimeout(this.reconnectTimer);
+        try {
+            await this.sock?.logout();
+        } catch {
+            /* ignore */
+        }
+        this.#teardown();
+        await sessionManager.deleteSession();
+        this.state = 'stopped';
+        log.warn('Logged out and session deleted.');
+    }
+}
+
+const connectionManager = new ConnectionManager();
+export default connectionManager;

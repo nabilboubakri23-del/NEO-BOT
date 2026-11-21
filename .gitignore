@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.*
+!.env.example
+storage/sessions/*
+!storage/sessions/.gitkeep
+storage/cache/
+storage/media/
+storage/logs/
+*.log
+*.enc
+*.tmp
+.DS_Store

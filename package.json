@@ -1,0 +1,27 @@
+{
+  "name": "neo-bot",
+  "version": "1.0.0",
+  "description": "NEO BOT - Advanced modular WhatsApp bot",
+  "main": "index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "genkey": "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
+    "reset-session": "node index.js --reset-session",
+    "test": "node --test tests/*.test.js"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "async-mutex": "^0.5.0",
+    "baileys": "github:raoltech/baileys#85683979188851789af85f0aec609bd3ca03cc41",
+    "dotenv": "^18.0.10",
+    "pino": "^10.4.0",
+    "pino-pretty": "^13.2.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

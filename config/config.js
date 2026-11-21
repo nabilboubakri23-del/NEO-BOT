@@ -1,0 +1,69 @@
+import 'dotenv/config';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+const toInt = (value, fallback) => {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const toBool = (value, fallback = false) => {
+    if (value === undefined || value === '') return fallback;
+    return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
+};
+
+const resolveDir = (value, fallback) => path.resolve(ROOT_DIR, value || fallback);
+
+const config = Object.freeze({
+    rootDir: ROOT_DIR,
+
+    bot: Object.freeze({
+        name: process.env.BOT_NAME || 'NEO BOT',
+        version: '1.0.0',
+        prefix: process.env.BOT_PREFIX || '.',
+        footer: 'Advanced WhatsApp Assistant',
+        website: process.env.BOT_WEBSITE || 'https://github.com'
+    }),
+
+    owner: Object.freeze({
+        // Comma separated international numbers without "+" (e.g. 2126XXXXXXXX)
+        numbers: (process.env.OWNER_NUMBERS || '')
+            .split(',')
+            .map((n) => n.replace(/\D/g, ''))
+            .filter(Boolean)
+    }),
+
+    auth: Object.freeze({
+        // "qr" | "phone" | "" (empty = ask in terminal or web setup)
+        method: (process.env.AUTH_METHOD || '').toLowerCase(),
+        phoneNumber: process.env.PAIRING_NUMBER || ''
+    }),
+
+    session: Object.freeze({
+        dir: resolveDir(process.env.SESSION_DIR, 'storage/sessions'),
+        encryptionKey: process.env.SESSION_ENCRYPTION_KEY || ''
+    }),
+
+    reconnect: Object.freeze({
+        baseDelayMs: toInt(process.env.RECONNECT_BASE_DELAY_MS, 2000),
+        maxDelayMs: toInt(process.env.RECONNECT_MAX_DELAY_MS, 60000),
+        maxAttempts: toInt(process.env.RECONNECT_MAX_ATTEMPTS, 0) // 0 = unlimited
+    }),
+
+    setupServer: Object.freeze({
+        // Browser based authentication for cloud hosting
+        enabled: toBool(process.env.WEB_SETUP_ENABLED, !process.stdin.isTTY),
+        port: toInt(process.env.PORT || process.env.WEB_SETUP_PORT, 3000),
+        token: process.env.WEB_SETUP_TOKEN || ''
+    }),
+
+    logging: Object.freeze({
+        level: process.env.LOG_LEVEL || 'info',
+        baileysLevel: process.env.BAILEYS_LOG_LEVEL || 'silent',
+        pretty: toBool(process.env.LOG_PRETTY, process.stdout.isTTY)
+    })
+});
+
+export default config;
