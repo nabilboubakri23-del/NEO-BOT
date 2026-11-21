@@ -18,7 +18,7 @@ export default {
                 `Number: ${message.senderNumber || 'Unknown'}`,
                 `LID: ${message.senderLid || 'none'}`,
                 `Owner: ${owner ? 'Yes' : 'No'}`,
-                ...(owner ? [] : ['', 'To become owner, add this to .env:', `OWNER_NUMBERS=${id}`, 'then restart the bot.'])
+                ...(owner ? [] : ['', 'Ask the main owner to send:', `${config.bot.prefix}owner add ${id}`])
             ])
         );
     }

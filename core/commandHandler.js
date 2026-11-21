@@ -5,6 +5,7 @@ import config from '../config/config.js';
 import { child } from './logger.js';
 import { box } from '../utils/formatter.js';
 import { describeError } from '../utils/errors.js';
+import { isOwner } from '../systems/owners/ownerStore.js';
 
 const log = child('commands');
 
@@ -71,10 +72,8 @@ class CommandHandler {
     }
 
     isOwner(message) {
-        // The linked WhatsApp account itself is always the owner.
-        // OWNER_NUMBERS may hold phone numbers or LIDs (shown by .myid).
-        const owners = config.owner.numbers;
-        return message.fromMe || owners.includes(message.senderNumber) || (message.senderLid && owners.includes(message.senderLid));
+        // Main owner, owners in data/owners.json, OWNER_NUMBERS, or the linked account itself.
+        return isOwner(message);
     }
 
     canRun(command, message) {

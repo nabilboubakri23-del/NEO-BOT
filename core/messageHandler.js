@@ -11,6 +11,7 @@ import config from '../config/config.js';
 import commandHandler from './commandHandler.js';
 import { child } from './logger.js';
 import { describeError } from '../utils/errors.js';
+import { isOwner, learnIdentity } from '../systems/owners/ownerStore.js';
 
 const log = child('messages');
 
@@ -146,6 +147,7 @@ export const handleUpsert = async (sock, { messages, type }) => {
             const message = serialize(sock, raw);
             if (!message) continue;
             await resolvePhoneNumber(sock, message);
+            if (!message.fromMe && isOwner(message)) await learnIdentity(message).catch(() => {});
 
             if (message.fromMe && !message.selectionId && !message.text.startsWith(config.bot.prefix)) continue;
 

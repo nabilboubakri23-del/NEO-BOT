@@ -3,6 +3,7 @@ import connectionManager from '../core/connection.js';
 import commandHandler from '../core/commandHandler.js';
 import { sendButtons, sendListMenu } from '../systems/menus/interactiveMenu.js';
 import { box, formatDuration } from '../utils/formatter.js';
+import { getOwners } from '../systems/owners/ownerStore.js';
 
 const { name: BOT, version, prefix, footer, website } = config.bot;
 
@@ -88,8 +89,8 @@ const interactions = {
     help: (sock, message) =>
         message.reply(box('HELP', [`${prefix}menu  → Main interactive menu`, `${prefix}ping  → Response time`, '', `Tip: ${prefix}menu <category id>`])),
     owner: (sock, message) => {
-        const owners = config.owner.numbers;
-        return message.reply(box('OWNER', owners.length ? owners.map((n) => `wa.me/${n}`) : ['Owner not configured.']));
+        const main = getOwners().owner.number || config.owner.numbers[0];
+        return message.reply(box('OWNER', main ? [`wa.me/${main}`] : ['Owner not configured.']));
     }
 };
 

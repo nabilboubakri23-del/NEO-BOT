@@ -115,3 +115,11 @@ Owner-only (the linked account itself, or numbers in `OWNER_NUMBERS`). Disable w
 | `.dev reload` | Hot-reload commands |
 
 Code goes on the lines under the command, in a `.js` file sent with the command as its caption, or in a message you reply to. Every change is syntax-checked (and command files import-checked) before saving; `.env`, sessions, `.git` and `node_modules` are never readable or writable. On Render, files changed this way are lost on the next deploy; edit through GitHub for permanent changes.
+
+## Owners (`data/owners.json`)
+
+Owners are kept in `data/owners.json` (git-ignored, created by the bot). The main owner and every listed owner get full owner permissions; only the main owner adds or removes owners.
+
+- First run: the terminal prints `.owner claim <code>`. Send it from your own WhatsApp to become the main owner.
+- `.owner` lists owners · `.owner add <number|@mention|reply>` · `.owner del <number|@mention>` · `.owner reload` re-reads the file after a manual edit.
+- `OWNER_NUMBERS` in `.env` still works as extra main owners. `.myid` shows your number, LID and status.

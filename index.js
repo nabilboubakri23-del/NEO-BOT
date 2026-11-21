@@ -9,6 +9,8 @@ import { startSetupServer, stopSetupServer } from './core/setupServer.js';
 import { startKeepAlive, stopKeepAlive } from './core/keepAlive.js';
 import { assertEncryptionReady } from './systems/security/encryption.js';
 import { describeError } from './utils/errors.js';
+import { terminalFrame } from './utils/formatter.js';
+import { createClaimCode, loadOwners } from './systems/owners/ownerStore.js';
 
 const log = logger.child({ module: 'main' });
 
@@ -43,6 +45,7 @@ const main = async () => {
     }
 
     assertEncryptionReady();
+    loadOwners();
     await commandHandler.load();
     startSetupServer();
     startKeepAlive();
@@ -54,6 +57,11 @@ const main = async () => {
     let authAttempts = 0;
     connectionManager.on('open', () => {
         authAttempts = 0;
+        const claim = createClaimCode();
+        if (claim) {
+            // Printed only to the terminal, never to WhatsApp: proves the claimer controls the server.
+            console.log(terminalFrame('NO MAIN OWNER SET', ['From your own WhatsApp send:', '', `${config.bot.prefix}owner claim ${claim}`, '', 'to the bot (private chat or group).']));
+        }
     });
     connectionManager.on('auth-required', () => {
         authAttempts += 1;

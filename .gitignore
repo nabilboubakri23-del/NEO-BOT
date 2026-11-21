@@ -10,4 +10,5 @@ storage/logs/
 *.log
 *.enc
 *.tmp
+data/owners.json
 .DS_Store
