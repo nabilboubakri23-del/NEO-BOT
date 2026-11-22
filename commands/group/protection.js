@@ -1,3 +1,4 @@
+import { readinessLines } from '../../systems/moderation/readiness.js';
 import config from '../../config/config.js';
 import { getGroupConfig, setGroupOption } from '../../systems/moderation/groupConfig.js';
 import { addCustomWord, getCustomWords, removeCustomWord } from '../../systems/moderation/profanity/customWords.js';
@@ -32,7 +33,7 @@ export const antibad = {
         const changes = [setGroupOption(message.chat, 'antibad', args[0])];
         if (args[1]) changes.push(setGroupOption(message.chat, 'badlevel', args[1]));
         await message.reply(
-            success('ANTI-PROFANITY', [...changes.map(({ key, value }) => `${key} → ${show(value)}`), '', `Built-in entries: ${builtinSize()}`, `Own words: ${P}badword add <word>`])
+            success('ANTI-PROFANITY', [...changes.map(({ key, value }) => `${key} → ${show(value)}`), '', `Built-in entries: ${builtinSize()}`, `Own words: ${P}badword add <word>`, ...(await readinessLines(sock, message))])
         );
     }
 };
@@ -95,7 +96,8 @@ export const antispam = {
                 ...changes.map(({ key, value }) => `${key} → ${show(value)}`),
                 '',
                 'mute: 1st strike delete, then 5 min, 30 min, 2 h',
-                'kick: 1st strike delete, 2nd strike removed'
+                'kick: 1st strike delete, 2nd strike removed',
+                ...(await readinessLines(sock, message))
             ])
         );
     }
@@ -117,9 +119,8 @@ export const protect = {
                 `🌊 Anti-spam: ${c.antispam} (${c.spamlimit} msgs / 10 s)`,
                 `⚠️ Warn limit: ${c.warnlimit}`,
                 `👮 Admin-only commands: ${show(c.adminonly)}`,
-                '',
-                'Admins and bot staff are exempt.',
-                'The bot must be a group admin to act.'
+                `🛂 Admins exempt: ${show(c.exemptadmins)}`,
+                ...(await readinessLines(sock, message))
             ])
         );
     }

@@ -12,12 +12,13 @@ const ACTIONS = ['off', 'delete', 'warn', 'kick'];
 
 export const GROUP_SCHEMA = Object.freeze({
     antilink: { type: 'enum', values: ACTIONS, default: 'off', description: 'Links from members: off | delete | warn (delete + warning) | kick' },
-    linkscope: { type: 'enum', values: ['invites', 'all'], default: 'invites', description: 'Which links anti-link catches: invites = WhatsApp group/channel links, all = any URL' },
+    linkscope: { type: 'enum', values: ['invites', 'all'], default: 'all', description: 'Which links anti-link catches: invites = WhatsApp group/channel links, all = any URL' },
     antivcard: { type: 'enum', values: ACTIONS, default: 'off', description: 'Contact cards (vCards) from members: off | delete | warn | kick' },
     antibad: { type: 'enum', values: ACTIONS, default: 'off', description: 'Profanity (Arabic dialects, Arabizi, English): off | delete | warn | kick' },
     badlevel: { type: 'enum', values: ['normal', 'strict'], default: 'normal', description: 'normal = severe insults only, strict = also mild ones (حمار, stupid)' },
     antispam: { type: 'enum', values: ['off', 'delete', 'warn', 'mute', 'kick'], default: 'off', description: 'Flood, repeats, mass tags, crash texts: off | delete | warn | mute (escalating) | kick (after 2 strikes)' },
     spamlimit: { type: 'int', min: 4, max: 20, default: 7, description: 'Messages allowed per 10 seconds before it counts as flood' },
+    exemptadmins: { type: 'bool', default: true, description: 'Group admins and bot staff skip protection (turn off to test it as an admin)' },
     warnlimit: { type: 'int', min: 2, max: 10, default: 3, description: 'Warnings before a member is removed' },
     adminonly: { type: 'bool', default: false, description: 'Only group admins (and bot staff) can use commands here' },
     levelup: { type: 'bool', default: false, description: 'Announce level-ups in this group' }

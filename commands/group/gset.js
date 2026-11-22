@@ -2,6 +2,7 @@ import config from '../../config/config.js';
 import { sendButtons } from '../../systems/menus/interactiveMenu.js';
 import { getGroupConfig, GROUP_SCHEMA, setGroupOption } from '../../systems/moderation/groupConfig.js';
 import { box, success } from '../../utils/formatter.js';
+import { readinessLines } from '../../systems/moderation/readiness.js';
 import { UsageError } from '../../utils/errors.js';
 
 /**
@@ -22,8 +23,8 @@ const optionLines = (group) => {
     return Object.entries(GROUP_SCHEMA).flatMap(([key, spec]) => [`${key}: ${show(cfg[key])}`, `   ${spec.description}`]);
 };
 
-const confirm = (message, changes) =>
-    message.reply(success('GROUP OPTIONS', changes.map(({ key, value }) => `${key} → ${show(value)}`)));
+const confirm = async (message, changes, sock) =>
+    message.reply(success('GROUP OPTIONS', [...changes.map(({ key, value }) => `${key} → ${show(value)}`), ...(sock ? await readinessLines(sock, message) : [])]));
 
 const base = {
     category: 'group',
@@ -59,10 +60,10 @@ export const gset = {
             );
         }
         if (args[0].toLowerCase() === 'off') {
-            return confirm(message, [setGroupOption(message.chat, 'antilink', 'off'), setGroupOption(message.chat, 'antivcard', 'off')]);
+            return confirm(message, [setGroupOption(message.chat, 'antilink', 'off'), setGroupOption(message.chat, 'antivcard', 'off')], sock);
         }
         if (args.length < 2) throw new UsageError(`Options: ${Object.keys(GROUP_SCHEMA).join(', ')}.`);
-        await confirm(message, [setGroupOption(message.chat, args[0], args[1])]);
+        await confirm(message, [setGroupOption(message.chat, args[0], args[1])], sock);
     }
 };
 
@@ -76,7 +77,7 @@ export const antilink = {
     async execute(sock, message, args) {
         const changes = [setGroupOption(message.chat, 'antilink', args[0])];
         if (args[1]) changes.push(setGroupOption(message.chat, 'linkscope', args[1]));
-        await confirm(message, changes);
+        await confirm(message, changes, sock);
     }
 };
 
@@ -88,7 +89,7 @@ export const antivcard = {
     usage: '<off|delete|warn|kick>',
     minArgs: 1,
     async execute(sock, message, args) {
-        await confirm(message, [setGroupOption(message.chat, 'antivcard', args[0])]);
+        await confirm(message, [setGroupOption(message.chat, 'antivcard', args[0])], sock);
     }
 };
 

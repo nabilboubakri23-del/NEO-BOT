@@ -56,6 +56,9 @@ const REASON = {
 };
 
 const isExempt = async (access) => access.atLeast('moderator') || (await access.isAdmin());
+/** Protection skips admins and staff unless the group turned "exemptadmins" off. */
+const skipsGuard = async (access, group) => getGroupOption(group, 'exemptadmins') && (await isExempt(access));
+const botAdminNotices = new NoticeLimiter(30 * 60_000);
 
 const SPAM_MUTES = [0, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000]; // by strike number (1st = delete only)
 
@@ -121,8 +124,14 @@ export const guardMessage = async ({ sock, message }) => {
     if (!violation) return true;
 
     const access = createAccess(sock, message);
-    if (await isExempt(access)) return true;
-    if (!(await access.isBotAdmin())) return true;
+    if (await skipsGuard(access, group)) return true;
+    if (!(await access.isBotAdmin())) {
+        // Say why nothing happened, at most once per group per 30 min.
+        if (violation.kind !== 'mute' && botAdminNotices.allow(group)) {
+            await sock.sendMessage(group, { text: box('MODERATION', [`Protection caught: ${REASON[violation.kind] || violation.kind}.`, 'I cannot delete it: make the bot a group admin.']) }).catch(() => {});
+        }
+        return true;
+    }
 
     await deleteMessage(sock, message.raw.key);
     if (violation.kind === 'mute') return false;

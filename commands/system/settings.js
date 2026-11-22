@@ -5,6 +5,7 @@ import { audit } from '../../systems/permissions/auditLog.js';
 import { allowedScopes, choicesFor, findSetting, readSetting, resolveSetting, SCOPES, show, visibleSettings, writeSetting } from '../../systems/settings/registry.js';
 import { resetSetting, SCHEMA } from '../../systems/settings/settingsStore.js';
 import { box, success } from '../../utils/formatter.js';
+import { readinessLines } from '../../systems/moderation/readiness.js';
 import { UsageError, UserError } from '../../utils/errors.js';
 
 /**
@@ -118,7 +119,7 @@ const apply = async (sock, message, access, scope, key, raw) => {
     const { key: name, value } = await writeSetting(scope, key, raw, { message, access });
     audit({ action: 'settings:set', actor: message, target: `${scope}.${name}`, detail: String(value) });
     log.warn({ scope, key: name, value, chat: scope === 'bot' ? undefined : message.chat }, 'Setting changed.');
-    const body = success('SETTINGS', [`${SCOPES[scope].title}`, `${name} → ${show(value)}`]);
+    const body = success('SETTINGS', [`${SCOPES[scope].title}`, `${name} → ${show(value)}`, ...(scope === 'group' ? await readinessLines(sock, message) : [])]);
     const buttons = [{ type: 'reply', text: '⚙️ Settings', id: `${ID}:scope:${scope}` }];
     if (typeof value === 'boolean') buttons.unshift({ type: 'reply', text: value ? '⛔ Turn OFF' : '✅ Turn ON', id: `${ID}:set:${scope}:${name}:${value ? 'off' : 'on'}` });
     return sendButtons(sock, message.chat, { title: config.bot.name, body, footer: config.bot.footer, buttons }, { quoted: message.raw, fallbackText: body });

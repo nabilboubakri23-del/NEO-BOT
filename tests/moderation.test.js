@@ -138,11 +138,26 @@ test('guard: anti-link deletes a member\'s invite link and warns; admins and qui
     const fromOwner = msg(sock, link, { group: true, number: OWNER });
     assert.equal(await guardMessage({ sock, message: fromOwner }), true);
 
-    // Bot not admin → nothing enforced.
+    // Bot not admin → nothing deleted, but the group is told why (once).
     invalidateGroup(GROUP);
     const weak = fakeSock({ admins: [ADMIN] });
     assert.equal(await guardMessage({ sock: weak, message: msg(weak, link, { group: true, number: '212677777777' }) }), true);
-    assert.equal(weak.sent.length, 0);
+    assert.equal(weak.sent.length, 1);
+    assert.match(lastText(weak), /make the bot a group admin/);
+    await guardMessage({ sock: weak, message: msg(weak, link, { group: true, number: '212677777777' }) });
+    assert.equal(weak.sent.length, 1);
+    invalidateGroup(GROUP);
+
+    // Any web link is caught by default (linkscope "all").
+    const plain = msg(sock, 'see youtube.com/watch?v=1', { group: true, number: '212677777778' });
+    assert.equal(await guardMessage({ sock, message: plain }), false);
+
+    // exemptadmins off → admins are checked too (to test it yourself).
+    groupConfig.setGroupOption(GROUP, 'exemptadmins', 'off');
+    assert.equal(await guardMessage({ sock, message: msg(sock, link, { group: true, number: ADMIN }) }), false);
+    groupConfig.setGroupOption(GROUP, 'exemptadmins', 'on');
+    warnings.clearWarnings(GROUP, { number: ADMIN });
+    warnings.clearWarnings(GROUP, { number: '212677777778' });
 
     groupConfig.setGroupOption(GROUP, 'antilink', 'off');
     warnings.clearWarnings(GROUP, { number: '212677777777' });
@@ -254,4 +269,13 @@ test('.delete removes the replied message; .hidetag mentions everyone', async ()
     const last = sock.sent.at(-1).content;
     assert.equal(last.text, 'meeting at 8');
     assert.equal(last.mentions.length, 4);
+});
+
+test('turning a guard on tells the admin when the bot is not admin', async () => {
+    invalidateGroup(GROUP);
+    const sock = fakeSock({ admins: [ADMIN] });
+    await run(sock, '.antivcard delete', { number: ADMIN });
+    assert.match(lastText(sock), /NOT a group admin/);
+    assert.match(lastText(sock), /exemptadmins/);
+    groupConfig.setGroupOption(GROUP, 'antivcard', 'off');
 });
