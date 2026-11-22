@@ -303,3 +303,10 @@ Owners are kept in `data/owners.json` (git-ignored, created by the bot). The mai
 
 ## Channel forward look
 Every bot message shows as "Forwarded from channel" (name + picture of the channel). Set `NEWSLETTER_JID` / `NEWSLETTER_NAME` in .env; turn off with `.settings set channelForward off`.
+
+## Connection stability and session cleanup
+
+- Internet outages no longer wipe the session: network errors that Baileys reports as 500 are retried with the saved session. Only an explicit logout (401) deletes it.
+- Reconnection is unlimited by default (backoff up to 60 s), so the bot comes back by itself when the internet returns.
+- The session cleaner checks the session hourly; above `SESSION_CLEAN_THRESHOLD` entries it removes stale disposable entries (old Signal sessions, group sender keys, device caches) unused for `SESSION_CLEAN_MIN_AGE_HOURS`. Owners can run `.session` / `.session clean`.
+- Keep-alive pings `/health` at most every 13 minutes (Render free sleeps after 15) and retries a failed ping after 1 minute. For extra safety add a free external monitor (e.g. cron-job.org or UptimeRobot) on `https://<your-service>.onrender.com/health` every 10 minutes: it can wake the service even after a restart.

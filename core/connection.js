@@ -1,6 +1,5 @@
 import { applyChannelForward } from '../systems/branding/channelForward.js';
 import { EventEmitter } from 'node:events';
-import { Boom } from '@hapi/boom';
 import makeWASocket, {
     Browsers,
     DisconnectReason,
@@ -46,6 +45,7 @@ class ConnectionManager extends EventEmitter {
         this.stopping = false;
         this.version = null;
         this.connectedAt = null;
+        this.badSessionStrikes = 0;
     }
 
     get isOpen() {
@@ -178,6 +178,7 @@ class ConnectionManager extends EventEmitter {
             const wasAuthenticating = Boolean(this.authChoice);
             this.state = 'open';
             this.attempts = 0;
+            this.badSessionStrikes = 0;
             this.authChoice = null;
             this.connectedAt = Date.now();
             authentication.update({ state: 'connected', qrDataUrl: null, pairingCode: null, error: null });
@@ -197,7 +198,10 @@ class ConnectionManager extends EventEmitter {
     }
 
     async #onClose(lastDisconnect) {
-        const code = new Boom(lastDisconnect?.error)?.output?.statusCode;
+        // Read the real status code. Wrapping a plain network error in a new Boom would turn it
+        // into 500 (= badSession) and wipe a healthy session after a simple internet outage.
+        const error = lastDisconnect?.error;
+        const code = error?.output?.statusCode ?? error?.data?.statusCode;
         const reason = REASONS[code] || 'unknown';
         const registered = Boolean(this.sock?.authState?.creds?.registered || this.sock?.authState?.creds?.account);
         const wasAuthenticating = Boolean(this.authChoice);
@@ -217,8 +221,21 @@ class ConnectionManager extends EventEmitter {
                 log.info('Restart required by WhatsApp. Reconnecting now.');
                 return this.#scheduleReconnect(0);
 
-            case DisconnectReason.loggedOut:
             case DisconnectReason.badSession:
+                // Baileys reports 500 for many network failures too (e.g. a socket closed mid-handshake
+                // while the internet is down). Never delete the session for it: keep retrying with the
+                // saved session. Only an explicit logout (401) removes it.
+                if (registered) {
+                    this.badSessionStrikes += 1;
+                    if (this.badSessionStrikes === 10) {
+                        log.error('Repeated session errors. If this continues, use "Unlink" on the setup page and link again.');
+                        authentication.update({ state: 'error', error: 'Repeated session errors. Reconnecting; relink only if it never recovers.' });
+                    }
+                    return this.#scheduleReconnect();
+                }
+                break;
+
+            case DisconnectReason.loggedOut:
             case DisconnectReason.multideviceMismatch:
                 log.error({ reason }, 'Session revoked or invalid. Deleting session.');
                 authentication.update({ state: 'error', error: 'Session revoked. Please link WhatsApp again.' });

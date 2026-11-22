@@ -7,6 +7,33 @@ import { child } from './logger.js';
 
 const log = child('session');
 
+// Longest names first so "sender-key-memory" is not read as "sender-key".
+const CATEGORIES = [
+    'app-state-sync-version',
+    'app-state-sync-key',
+    'sender-key-memory',
+    'identity-key',
+    'lid-mapping',
+    'device-list',
+    'sender-key',
+    'pre-key',
+    'session',
+    'tctoken'
+];
+
+/** Category of a session entry name ("creds.json" → "creds", "session-123.0.json" → "session"). */
+export const entryCategory = (name) => {
+    if (name === 'creds.json') return 'creds';
+    return CATEGORIES.find((c) => name.startsWith(`${c}-`)) || 'other';
+};
+
+/**
+ * Categories that are safe to drop when stale: Signal sessions, group sender keys and
+ * caches that WhatsApp renegotiates on the next message. Never creds, pre-keys,
+ * app-state keys or LID mappings.
+ */
+export const DISPOSABLE_CATEGORIES = Object.freeze(['session', 'sender-key', 'sender-key-memory', 'device-list']);
+
 /**
  * Encrypted authentication-state adapter for Baileys.
  *
@@ -49,7 +76,7 @@ class SessionManager {
         await this.#ensureReady();
         const key = this.#key(name);
         const payload = encrypt(JSON.stringify(value, BufferJSON.replacer), name);
-        await this.#lock(key).runExclusive(() => this.store.set(key, payload));
+        await this.#lock(key).runExclusive(() => this.store.set(key, payload, { type: entryCategory(name) }));
     }
 
     async #read(name) {
@@ -129,6 +156,21 @@ class SessionManager {
         await this.store.clear();
         this.locks.clear();
         log.warn('Session data deleted.');
+    }
+
+    /**
+     * Removes disposable entries untouched for `minAgeMs`. Critical files are never touched.
+     * Returns the number of removed entries.
+     */
+    async cleanup({ minAgeMs }) {
+        await this.#ensureReady();
+        if (typeof this.store.listStale !== 'function') return 0;
+        const keys = await this.store.listStale({ types: [...DISPOSABLE_CATEGORIES], before: new Date(Date.now() - minAgeMs) });
+        for (const key of keys) {
+            await this.#lock(key).runExclusive(() => this.store.delete(key));
+            this.locks.delete(key);
+        }
+        return keys.length;
     }
 
     async fileCount() {

@@ -27,16 +27,23 @@ export class MongoStore {
         return doc ? Buffer.from(doc.data.buffer) : null;
     }
 
-    async set(key, buffer) {
+    async set(key, buffer, meta = {}) {
+        // `type` is the entry's category only (e.g. "session"), used by the session cleaner.
         await this.col.updateOne(
             { _id: key },
-            { $set: { data: new Binary(buffer), updatedAt: new Date() } },
+            { $set: { data: new Binary(buffer), updatedAt: new Date(), ...(meta.type ? { type: meta.type } : {}) } },
             { upsert: true }
         );
     }
 
     async delete(key) {
         await this.col.deleteOne({ _id: key });
+    }
+
+    /** Keys of the given categories whose last write is older than `before` (Date). */
+    async listStale({ types, before }) {
+        const docs = await this.col.find({ type: { $in: types }, updatedAt: { $lt: before } }, { projection: { _id: 1 } }).toArray();
+        return docs.map((d) => d._id);
     }
 
     async clear() {

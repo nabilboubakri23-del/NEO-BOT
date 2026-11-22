@@ -55,6 +55,15 @@ const config = Object.freeze({
         encryptionKey: process.env.SESSION_ENCRYPTION_KEY || ''
     }),
 
+    sessionCleanup: Object.freeze({
+        // Cleanup runs only when the session holds more entries than this.
+        threshold: toInt(process.env.SESSION_CLEAN_THRESHOLD, 500),
+        // Only entries untouched for this long are removed (active chats stay intact).
+        minAgeMs: toInt(process.env.SESSION_CLEAN_MIN_AGE_HOURS, 24) * 60 * 60 * 1000,
+        intervalMs: toInt(process.env.SESSION_CLEAN_INTERVAL_MS, 60 * 60 * 1000),
+        enabled: process.env.SESSION_CLEAN_ENABLED !== 'false'
+    }),
+
     reconnect: Object.freeze({
         baseDelayMs: toInt(process.env.RECONNECT_BASE_DELAY_MS, 2000),
         maxDelayMs: toInt(process.env.RECONNECT_MAX_DELAY_MS, 60000),
@@ -72,7 +81,8 @@ const config = Object.freeze({
         // Public URL pinged to stop free hosts from idling the service.
         // Render sets RENDER_EXTERNAL_URL automatically.
         url: process.env.KEEP_ALIVE_URL || process.env.RENDER_EXTERNAL_URL || '',
-        intervalMs: toInt(process.env.KEEP_ALIVE_INTERVAL_MS, 10 * 60 * 1000)
+        // Render free idles after 15 minutes without inbound traffic: never ping less often than every 13.
+        intervalMs: Math.min(toInt(process.env.KEEP_ALIVE_INTERVAL_MS, 10 * 60 * 1000), 13 * 60 * 1000)
     }),
 
     media: Object.freeze({
