@@ -16,6 +16,10 @@ const toBool = (value, fallback = false) => {
 
 const resolveDir = (value, fallback) => path.resolve(ROOT_DIR, value || fallback);
 
+// Existing AI_API_KEY deployments retain their OpenAI-compatible settings.
+const aiProvider = (process.env.AI_PROVIDER || (process.env.GROQ_API_KEY && !process.env.AI_API_KEY ? 'groq' : 'openai')).toLowerCase();
+const useGroq = aiProvider === 'groq';
+
 const config = Object.freeze({
     rootDir: ROOT_DIR,
 
@@ -93,10 +97,10 @@ const config = Object.freeze({
     }),
 
     ai: Object.freeze({
-        // Any OpenAI-compatible chat completions API. Disabled while AI_API_KEY is empty.
-        apiKey: process.env.AI_API_KEY || '',
-        baseUrl: (process.env.AI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, ''),
-        model: process.env.AI_MODEL || 'gpt-4o-mini',
+        provider: aiProvider,
+        apiKey: useGroq ? (process.env.GROQ_API_KEY || process.env.AI_API_KEY || '') : (process.env.AI_API_KEY || ''),
+        baseUrl: (process.env.AI_BASE_URL || (useGroq ? 'https://api.groq.com/openai/v1' : 'https://api.openai.com/v1')).replace(/\/+$/, ''),
+        model: process.env.AI_MODEL || (useGroq ? 'openai/gpt-oss-120b' : 'gpt-4o-mini'),
         systemPrompt: process.env.AI_SYSTEM_PROMPT || ''
     }),
 
