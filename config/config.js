@@ -84,10 +84,10 @@ const config = Object.freeze({
     antiban: Object.freeze({
         // Outgoing-message governor that keeps the bot's sending pattern human-like.
         enabled: process.env.ANTIBAN_ENABLED !== 'false',
-        perMinute: toInt(process.env.ANTIBAN_PER_MINUTE, 20),
+        perMinute: toInt(process.env.ANTIBAN_PER_MINUTE, 30),
         perHour: toInt(process.env.ANTIBAN_PER_HOUR, 400),
-        burst: toInt(process.env.ANTIBAN_BURST, 5),
-        chatGapMs: toInt(process.env.ANTIBAN_CHAT_GAP_MS, 700),
+        burst: toInt(process.env.ANTIBAN_BURST, 8),
+        chatGapMs: toInt(process.env.ANTIBAN_CHAT_GAP_MS, 400),
         // Never start a private chat with someone who has not written to the bot first.
         blockColdDm: process.env.ANTIBAN_BLOCK_COLD_DM !== 'false'
     }),

@@ -134,3 +134,21 @@ test('anti-ban: rate-limit error pauses sending', async () => {
     await g.run(GROUP, { text: 'b' }, async () => ({}));
     assert.ok(t >= 30_000, 'waited for the pause');
 });
+
+test('governor: nested sends pass through (no self-deadlock) and a hung send releases its chat', async (t) => {
+    const g = new SendGovernor({ enabled: true, perMinute: 600, perHour: 100, burst: 50, chatGapMs: 0, blockColdDm: false });
+    const jid = '120363000000000001@g.us';
+    // A wrapper that relays from inside a governed send (same chat) must not wait on itself.
+    const nested = await g.run(jid, { text: 'outer' }, () => g.run(jid, null, async () => 'inner-done'));
+    assert.equal(nested, 'inner-done');
+
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const hung = g.run(jid, { text: 'never settles' }, () => new Promise(() => {}));
+    const hungResult = hung.then(() => 'ok', (e) => e.code);
+    const next = g.run(jid, { text: 'next' }, async () => 'sent');
+    await Promise.resolve();
+    for (let i = 0; i < 20; i++) { t.mock.timers.tick(2_000); await new Promise((r) => setImmediate(r)); }
+    assert.equal(await hungResult, 'SEND_DROPPED');
+    assert.equal(await next, 'sent');
+    t.mock.timers.reset();
+});

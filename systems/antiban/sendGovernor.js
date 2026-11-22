@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { isJidGroup, isJidNewsletter, jidNormalizedUser } from 'baileys';
 import config from '../../config/config.js';
 import { child } from '../../core/logger.js';
@@ -21,7 +22,12 @@ import { TokenBucket } from './tokenBucket.js';
 const log = child('antiban');
 
 const MAX_QUEUE_PER_CHAT = 12;
-const MAX_WAIT_MS = 45_000;
+const MAX_WAIT_MS = 20_000;
+// A send that never settles (socket closed mid-send, reconnect) must not block its chat forever.
+const SEND_TIMEOUT_MS = 30_000;
+// Sends made while another governed send is running (a wrapper calling relay) pass straight through:
+// queueing them behind their own parent would deadlock that chat.
+const inside = new AsyncLocalStorage();
 const LOOP_WINDOW_MS = 10_000;
 const KNOWN_LIMIT = 20_000;
 
@@ -97,7 +103,7 @@ export class SendGovernor {
 
     /** Waits for its turn, then runs `send`. */
     async run(jid, content, send) {
-        if (!this.opts.enabled || !this.isEnabled()) return send();
+        if (!this.opts.enabled || !this.isEnabled() || inside.getStore()) return send();
         const action = isAction(content);
         if (!action) {
             if (!this.#allowedTarget(jid)) this.#drop('cold_dm', jid);
@@ -124,7 +130,7 @@ export class SendGovernor {
                 if (w > MAX_WAIT_MS) this.#drop('overloaded', jid);
                 if (w > 0) await this.wait(w);
                 bucket.take();
-                const result = await send();
+                const result = await this.#withTimeout(inside.run(true, send));
                 if (!action) {
                     chain.last = this.now();
                     this.hour.push(chain.last);
@@ -143,6 +149,19 @@ export class SendGovernor {
             if (chain.size <= 0 && this.chains.get(jid) === chain) this.chains.delete(jid);
         });
         return job;
+    }
+
+    #withTimeout(promise) {
+        let timer;
+        const timeout = new Promise((_, reject) => {
+            timer = setTimeout(() => {
+                this.stats.timedOut = (this.stats.timedOut || 0) + 1;
+                log.warn('A send did not finish in time; releasing its chat queue.');
+                reject(new SendDroppedError('send_timeout'));
+            }, SEND_TIMEOUT_MS);
+            timer.unref?.();
+        });
+        return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
     }
 
     #isRateLimit(error) {
