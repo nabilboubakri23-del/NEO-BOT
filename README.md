@@ -303,3 +303,61 @@ Owners are kept in `data/owners.json` (git-ignored, created by the bot). The mai
 
 ## Channel forward look
 Every bot message shows as "Forwarded from channel" (name + picture of the channel). Set `NEWSLETTER_JID` / `NEWSLETTER_NAME` in .env; turn off with `.settings set channelForward off`.
+
+
+## Free AI chat and character commands
+
+Recommended provider: **Groq Free**, with `openai/gpt-oss-120b` as the default.
+Use your own account and key. A free API is quota-limited, not unlimited.
+Do not use shared or leaked keys. Do not enable a paid plan to use these commands.
+
+On the bot host, set the private environment variables:
+
+```dotenv
+AI_PROVIDER=groq
+GROQ_API_KEY=<your own private Groq key>
+```
+
+Leave `AI_BASE_URL` and `AI_MODEL` unset (or empty) to use Groq defaults.
+If they already contain OpenAI settings, clear them before switching providers.
+Restart the bot after changing its environment. Never commit the real key.
+Create keys in the official Groq Console. No key is included with this code.
+The integration is inactive until a valid key is configured.
+
+Existing deployments with `AI_API_KEY` keep the prior OpenAI-compatible defaults
+unless `AI_PROVIDER=groq` is selected. Groq also accepts the existing `AI_API_KEY`
+variable when explicitly selected. No new dependency is required.
+
+- General chat: `.ai`, `.ask`, `.gpt`, `.chat`, `.بوت`, `.اوبن` followed by a question.
+- Characters: `.eren` / `.إيرن`, `.itachi` / `.إيتاتشي`, `.luffy` / `.لوفي`,
+  `.marin` / `.مارين`, `.mikasa` / `.ميكاسا`, `.pomni` / `.بومني`.
+- Example: `.لوفي شنو هو الحلم ديالك؟`
+- Reset a conversation with the command plus `reset`, such as `.luffy reset`.
+- Each character has separate short memory for each person in each chat.
+  Memory lasts 10 minutes and disappears at restart. Character replies default to
+  casual Egyptian Arabic, following the supplied examples, unless asked otherwise.
+- These are fictional AI roleplay responses and may be wrong. No external actions
+  or tools are enabled. Existing permissions and rate-limit checks still apply.
+  Set permissions separately for each character if you restrict AI access.
+
+Only AI command text, included quoted text and short AI conversation history are
+sent to the configured provider. No phone numbers or profile names are added to
+requests by this integration. Do not send secrets or sensitive personal data.
+Groq says inference content is not retained by default, but it can be logged for
+reliability or abuse investigations for up to 30 days. Account admins can enable
+Zero Data Retention. This code does not change the account's data controls.
+
+Groq's published quota summary at the time of this change lists 30 requests/min,
+1,000 requests/day, 8,000 tokens/min and 200,000 tokens/day for this model.
+The first reached limit applies; the exact account limits in the Console govern.
+Quota changes or model retirement can require updating `AI_MODEL`. Rate-limit
+errors produce a retry message, never a switch to a paid service.
+
+Provider references:
+- https://console.groq.com/docs/openai
+- https://console.groq.com/docs/rate-limits
+- https://console.groq.com/docs/your-data
+- https://console.groq.com/docs/billing-faqs
+
+Tests use mocked provider responses and do not spend API quota. A live provider
+check and WhatsApp check are still needed after configuring the real host key.
