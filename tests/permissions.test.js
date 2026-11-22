@@ -234,16 +234,16 @@ test('overrides and locks win over the file default', async () => {
 
 test('per-user allow and deny (deny wins)', async () => {
     const sock = fakeSock();
-    assert.match(await run(sock, '.settings', USER), /Requires 👑 Owner/);
-    assert.match(await run(sock, `.perm allow ${USER} settings`, CREATOR), /ACCESS GRANTED/);
-    assert.match(await run(sock, '.settings', USER), /SETTINGS/);
-    assert.match(await run(sock, `.perm deny ${USER} settings`, CREATOR), /ACCESS DENIED/);
-    assert.match(await run(sock, '.settings', USER), /blocked/);
+    assert.match(await run(sock, '.antiban', USER), /Requires 👑 Owner/);
+    assert.match(await run(sock, `.perm allow ${USER} antiban`, CREATOR), /ACCESS GRANTED/);
+    assert.match(await run(sock, '.antiban', USER), /ANTI-BAN/);
+    assert.match(await run(sock, `.perm deny ${USER} antiban`, CREATOR), /ACCESS DENIED/);
+    assert.match(await run(sock, '.antiban', USER), /blocked/);
     assert.match(await run(sock, `.perm deny ${CO_OWNER} stats`, CREATOR), /ACCESS DENIED/);
     assert.match(await run(sock, '.stats', CO_OWNER), /blocked/); // deny beats a high rank
-    overrides.resetCommand('settings');
+    overrides.resetCommand('antiban');
     overrides.resetCommand('stats');
-    assert.match(await run(sock, '.settings', USER), /Requires 👑 Owner/);
+    assert.match(await run(sock, '.antiban', USER), /Requires 👑 Owner/);
 });
 
 test('perks: cooldown multiplier and daily limit by rank', async () => {
@@ -313,19 +313,19 @@ test('.help and .menu show only usable commands, with rank badges', async () => 
     const sock = fakeSock();
     const userHelp = await run(sock, '.help', USER);
     assert.doesNotMatch(userHelp, /\.ban/);
-    assert.doesNotMatch(userHelp, /\.settings/);
+    assert.doesNotMatch(userHelp, /\.antiban/);
     const modHelp = await run(sock, '.help', MOD);
     assert.match(modHelp, /\.ban .*🛡️/);
-    assert.doesNotMatch(modHelp, /\.settings/);
+    assert.doesNotMatch(modHelp, /\.antiban/);
     assert.match(await run(sock, '.help ban', MOD), /Permission: 🛡️ Moderator/);
-    assert.match(await run(sock, '.help settings', USER), /No command named/);
+    assert.match(await run(sock, '.help antiban', USER), /No command named/);
     assert.match(await run(sock, '.help', CREATOR), /\.perm/);
 
     resetLimits();
     await commandHandler.handleSelection(sock, { ...msg(sock, '', MOD), selectionId: 'menu:cat:owner' });
     const modMenu = JSON.stringify(sock.sent.at(-1).relay);
     assert.match(modMenu, /\.ban/);
-    assert.doesNotMatch(modMenu, /\.settings/);
+    assert.doesNotMatch(modMenu, /\.antiban/);
     resetLimits();
     await commandHandler.handleSelection(sock, { ...msg(sock, '', USER), selectionId: 'menu:main' });
     assert.doesNotMatch(JSON.stringify(sock.sent.at(-1).relay), /OWNER PANEL/);

@@ -378,3 +378,15 @@ check and WhatsApp check are still needed after configuring the real host key.
 **Anti-spam** (`systems/moderation/spam/`): flood (all message types), normalized repeats, mass tags, crash/bomb texts. Whole bursts are deleted; strikes escalate (mute 5 min → 30 min → 2 h, or kick on the 2nd strike). `.antispam <off|delete|warn|mute|kick> [limit]`, `.protect` for status.
 
 Edits, captions, polls, documents and contact names are all scanned, so "send clean then edit" does not work. Group admins and bot staff are exempt; the bot must be a group admin.
+
+## Settings panel (v1.5.1)
+
+`.settings` (aliases `.config`, `.set`, `.اعدادات`) is one button-driven panel for everyone, filtered by permission:
+
+| Section | Who | What |
+|---|---|---|
+| 🤖 Bot | Owner rank and above | `active` (bot on/off everywhere, owners keep access), `antiban`, `mode`, `typing`, `autoRead`, cooldowns, limits... |
+| 💬 This chat | Group admins, owners | `enabled` (bot on/off in this chat) |
+| 🛡️ Group protection | Group admins, Moderator+ | anti-link, anti-vCard, anti-profanity, anti-spam, warn limit, admin-only... |
+
+Flow: `.settings` → section → setting → ✅ ON / ⛔ OFF (or a value from a list). Text also works: `.settings off typing`, `.settings on antibad`, `.settings set antispam mute`, `.settings info <key>`, `.settings reset <key|all>` (owners). Every change re-checks permission on the server (forged or forwarded button ids do nothing) and is written to the audit log.

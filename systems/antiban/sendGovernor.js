@@ -39,11 +39,12 @@ const isAction = (content) => Boolean(content && ('react' in content || 'delete'
 const textOf = (content) => (content && (content.text || content.caption)) || '';
 
 export class SendGovernor {
-    constructor(options = config.antiban, { now = () => Date.now(), wait = sleep, isTrusted = () => false } = {}) {
+    constructor(options = config.antiban, { now = () => Date.now(), wait = sleep, isTrusted = () => false, isEnabled = () => true } = {}) {
         this.opts = options;
         this.now = now;
         this.wait = wait;
         this.isTrusted = isTrusted;
+        this.isEnabled = isEnabled;
         this.messages = new TokenBucket({ capacity: options.burst, refillPerMinute: options.perMinute, now });
         this.actions = new TokenBucket({ capacity: 15, refillPerMinute: 90, now });
         this.hour = [];
@@ -96,7 +97,7 @@ export class SendGovernor {
 
     /** Waits for its turn, then runs `send`. */
     async run(jid, content, send) {
-        if (!this.opts.enabled) return send();
+        if (!this.opts.enabled || !this.isEnabled()) return send();
         const action = isAction(content);
         if (!action) {
             if (!this.#allowedTarget(jid)) this.#drop('cold_dm', jid);
@@ -159,7 +160,7 @@ export class SendGovernor {
 
     status() {
         return {
-            enabled: this.opts.enabled,
+            enabled: this.opts.enabled && this.isEnabled(),
             lastHour: this.#hourCount(),
             perHour: this.opts.perHour,
             perMinute: this.opts.perMinute,

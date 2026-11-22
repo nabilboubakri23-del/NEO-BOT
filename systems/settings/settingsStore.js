@@ -11,6 +11,8 @@ import { UserError } from '../../utils/errors.js';
 const MODES = ['public', 'private', 'groups', 'inbox'];
 
 export const SCHEMA = Object.freeze({
+    active: { type: 'bool', default: true, description: 'Bot on/off everywhere (owners always keep access)' },
+    antiban: { type: 'bool', default: true, description: 'Anti-ban send governor (rate limits, no cold DMs, loop guard)' },
     mode: { type: 'enum', values: MODES, default: 'public', description: 'public = everyone, private = owners and creator only, groups = groups only, inbox = private chats only' },
     autoRead: { type: 'bool', default: false, description: 'Mark incoming messages as read' },
     typing: { type: 'bool', default: true, description: 'Show "typing..." while a command runs' },

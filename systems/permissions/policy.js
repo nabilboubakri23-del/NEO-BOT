@@ -11,6 +11,9 @@ export const checkPolicy = (message, access, command = null) => {
     if (access.isOwner) return { ok: true };
     if (access.rank?.name === 'banned') return { ok: false, reason: 'banned', silent: true };
 
+    // Global switch: ".settings" → Bot → active off. Only owners keep using the bot.
+    if (!getSetting('active')) return { ok: false, reason: 'bot:off', silent: true };
+
     const mode = getSetting('mode');
     if (mode === 'private') return { ok: false, reason: 'mode:private', silent: true };
     if (mode === 'groups' && !message.isGroup) return { ok: false, reason: 'mode:groups', silent: true };

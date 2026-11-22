@@ -180,7 +180,7 @@ test('pipeline: help, unknown command suggestion, usage errors, owner gate', asy
     await commandHandler.handleCommand(sock, msg(sock, '.pnig'));
     assert.match(lastText(sock), /Did you mean \.ping/);
 
-    await commandHandler.handleCommand(sock, msg(sock, '.settings', { number: '212633333333' }));
+    await commandHandler.handleCommand(sock, msg(sock, '.antiban', { number: '212633333333' }));
     assert.match(lastText(sock), /Access denied/);
     assert.match(lastText(sock), /Requires 👑 Owner\. Your rank: 👤 User\./);
 
