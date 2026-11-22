@@ -169,7 +169,7 @@ export default {
 - **Safe install from URL**: `.plugins install <https url>` downloads, scans for risky code
   (shell, eval, file deletion, env / credentials), validates in isolation, then loads.
   Risky plugins need `--force`.
-- **Multi-command files**: a command file may `export default [cmdA, cmdB]` (see `commands/group.js`).
+- **Multi-command files**: a command file may `export default [cmdA, cmdB]` (see `commands/group/group.js`).
 
 ### Writing a plugin
 ```js
@@ -240,7 +240,7 @@ systems/settings/ users/ stats/ database/ groups/
 core/logger.js             pino with redaction
 systems/security/encryption.js
 systems/menus/interactiveMenu.js
-commands/menu.js, commands/ping.js
+commands/system/menu.js, commands/system/ping.js
 utils/                     formatter, validators, errors
 tests/*.test.js            npm test
 ```

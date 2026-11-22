@@ -1,7 +1,7 @@
-import config from '../config/config.js';
-import pluginManager from '../systems/plugins/pluginManager.js';
-import { box } from '../utils/formatter.js';
-import { describeError, UsageError } from '../utils/errors.js';
+import config from '../../config/config.js';
+import pluginManager from '../../systems/plugins/pluginManager.js';
+import { box } from '../../utils/formatter.js';
+import { describeError, UsageError } from '../../utils/errors.js';
 
 /**
  * .plugins — owner-only plugin manager.

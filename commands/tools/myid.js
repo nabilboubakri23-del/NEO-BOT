@@ -1,7 +1,7 @@
-import config from '../config/config.js';
-import { rankOfTarget } from '../systems/permissions/resolveRank.js';
-import { box } from '../utils/formatter.js';
-import { resolveUserTarget } from '../utils/targets.js';
+import config from '../../config/config.js';
+import { rankOfTarget } from '../../systems/permissions/resolveRank.js';
+import { box } from '../../utils/formatter.js';
+import { resolveUserTarget } from '../../utils/targets.js';
 
 /**
  * .myid — your number, LID and rank; with a @mention, a reply or a number,

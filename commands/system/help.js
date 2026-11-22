@@ -1,11 +1,11 @@
-import config from '../config/config.js';
-import commandHandler from '../core/commandHandler.js';
-import { CATEGORIES, categoryOf } from '../systems/menus/menuLayout.js';
-import { canSee, describeAccess, rankBadge } from '../systems/permissions/permissions.js';
-import { cooldownFor } from '../systems/permissions/perks.js';
-import { badge } from '../systems/permissions/ranks.js';
-import { box, usage } from '../utils/formatter.js';
-import { UserError } from '../utils/errors.js';
+import config from '../../config/config.js';
+import commandHandler from '../../core/commandHandler.js';
+import { CATEGORIES, categoryOf } from '../../systems/menus/menuLayout.js';
+import { canSee, describeAccess, rankBadge } from '../../systems/permissions/permissions.js';
+import { cooldownFor } from '../../systems/permissions/perks.js';
+import { badge } from '../../systems/permissions/ranks.js';
+import { box, usage } from '../../utils/formatter.js';
+import { UserError } from '../../utils/errors.js';
 
 /**
  * .help — generated from the command registry, never written by hand.

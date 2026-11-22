@@ -1,15 +1,15 @@
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
-import config from '../config/config.js';
-import commandHandler from '../core/commandHandler.js';
-import { child } from '../core/logger.js';
-import { sendButtons, sendListMenu } from '../systems/menus/interactiveMenu.js';
-import * as ws from '../systems/devtools/workspace.js';
-import { checkCommandModule, checkSyntax, isValidCommandName } from '../systems/devtools/codeValidator.js';
-import { readCode } from '../systems/devtools/codeInput.js';
-import { rankBadge } from '../systems/permissions/permissions.js';
-import { box } from '../utils/formatter.js';
-import { describeError } from '../utils/errors.js';
+import config from '../../config/config.js';
+import commandHandler from '../../core/commandHandler.js';
+import { child } from '../../core/logger.js';
+import { sendButtons, sendListMenu } from '../../systems/menus/interactiveMenu.js';
+import * as ws from '../../systems/devtools/workspace.js';
+import { checkCommandModule, checkSyntax, isValidCommandName } from '../../systems/devtools/codeValidator.js';
+import { readCode } from '../../systems/devtools/codeInput.js';
+import { rankBadge } from '../../systems/permissions/permissions.js';
+import { box } from '../../utils/formatter.js';
+import { describeError } from '../../utils/errors.js';
 
 /**
  * .dev — owner-only remote developer console.
@@ -45,7 +45,7 @@ const allFiles = async (dir = '.') => {
 
 /**
  * Accepts a command name or alias ("ping"), a file name ("ping.js", "config.js")
- * or a path ("commands/ping.js"). File names are searched across the project.
+ * or a path ("commands/system/ping.js"). File names are searched across the project.
  */
 const resolveTarget = async (input) => {
     if (!input) return null;
@@ -101,9 +101,9 @@ const needCode = (message, usage) =>
         ])
     );
 
-const TEMPLATE = (name) => `import config from '../config/config.js';
-import { box } from '../utils/formatter.js';
-import { UsageError, UserError } from '../utils/errors.js';
+const TEMPLATE = (name) => `import config from '../../config/config.js';
+import { box } from '../../utils/formatter.js';
+import { UsageError, UserError } from '../../utils/errors.js';
 
 export default {
     name: '${name}',

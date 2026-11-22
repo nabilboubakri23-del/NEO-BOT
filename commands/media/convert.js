@@ -1,6 +1,6 @@
-import { stickerToImage, toGif, toMp3 } from '../systems/media/converters.js';
-import { downloadMedia, findMedia } from '../utils/media.js';
-import { UsageError } from '../utils/errors.js';
+import { stickerToImage, toGif, toMp3 } from '../../systems/media/converters.js';
+import { downloadMedia, findMedia } from '../../utils/media.js';
+import { UsageError } from '../../utils/errors.js';
 
 /**
  * Media conversions (send with the media or reply to it):

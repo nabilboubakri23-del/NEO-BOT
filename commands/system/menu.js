@@ -1,12 +1,12 @@
-import config from '../config/config.js';
-import connectionManager from '../core/connection.js';
-import commandHandler from '../core/commandHandler.js';
-import { sendButtons, sendListMenu } from '../systems/menus/interactiveMenu.js';
-import { CATEGORIES, categoryOf, findCategory } from '../systems/menus/menuLayout.js';
-import { accessSpec, effectiveRank, rankBadge } from '../systems/permissions/permissions.js';
-import { levelOf } from '../systems/permissions/ranks.js';
-import { box, formatDuration } from '../utils/formatter.js';
-import { getOwners } from '../systems/owners/ownerStore.js';
+import config from '../../config/config.js';
+import connectionManager from '../../core/connection.js';
+import commandHandler from '../../core/commandHandler.js';
+import { sendButtons, sendListMenu } from '../../systems/menus/interactiveMenu.js';
+import { CATEGORIES, categoryOf, findCategory } from '../../systems/menus/menuLayout.js';
+import { accessSpec, effectiveRank, rankBadge } from '../../systems/permissions/permissions.js';
+import { levelOf } from '../../systems/permissions/ranks.js';
+import { box, formatDuration } from '../../utils/formatter.js';
+import { getOwners } from '../../systems/owners/ownerStore.js';
 
 /**
  * .menu — multi-level interactive menu built from the command registry.

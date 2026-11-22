@@ -1,6 +1,6 @@
-import { makeSticker, parseMetaArgs } from '../systems/media/sticker.js';
-import { downloadMedia, findMedia } from '../utils/media.js';
-import { UsageError } from '../utils/errors.js';
+import { makeSticker, parseMetaArgs } from '../../systems/media/sticker.js';
+import { downloadMedia, findMedia } from '../../utils/media.js';
+import { UsageError } from '../../utils/errors.js';
 
 /**
  * Stickers.

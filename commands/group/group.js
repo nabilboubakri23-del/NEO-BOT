@@ -1,10 +1,10 @@
-import config from '../config/config.js';
-import { getGroup, invalidateGroup } from '../systems/groups/groupCache.js';
-import { box, success } from '../utils/formatter.js';
-import { UsageError, UserError } from '../utils/errors.js';
-import { canModerateMember } from '../systems/permissions/rankRules.js';
-import { rankOfTarget } from '../systems/permissions/resolveRank.js';
-import { resolveUserTarget, describeTarget, targetJid } from '../utils/targets.js';
+import config from '../../config/config.js';
+import { getGroup, invalidateGroup } from '../../systems/groups/groupCache.js';
+import { box, success } from '../../utils/formatter.js';
+import { UsageError, UserError } from '../../utils/errors.js';
+import { canModerateMember } from '../../systems/permissions/rankRules.js';
+import { rankOfTarget } from '../../systems/permissions/resolveRank.js';
+import { resolveUserTarget, describeTarget, targetJid } from '../../utils/targets.js';
 
 /**
  * Group management, in the style of well-known bots (Levanter, Silva):

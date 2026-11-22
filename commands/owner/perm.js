@@ -1,14 +1,14 @@
-import config from '../config/config.js';
-import commandHandler from '../core/commandHandler.js';
-import { child } from '../core/logger.js';
-import { audit } from '../systems/permissions/auditLog.js';
-import * as overrides from '../systems/permissions/commandOverrides.js';
-import { accessSpec, effectiveRank } from '../systems/permissions/permissions.js';
-import { rankOfTarget } from '../systems/permissions/resolveRank.js';
-import { badge, rankName, RANKS } from '../systems/permissions/ranks.js';
-import { box, success } from '../utils/formatter.js';
-import { UsageError, UserError } from '../utils/errors.js';
-import { describeTarget, isTargetArg, resolveUserTarget } from '../utils/targets.js';
+import config from '../../config/config.js';
+import commandHandler from '../../core/commandHandler.js';
+import { child } from '../../core/logger.js';
+import { audit } from '../../systems/permissions/auditLog.js';
+import * as overrides from '../../systems/permissions/commandOverrides.js';
+import { accessSpec, effectiveRank } from '../../systems/permissions/permissions.js';
+import { rankOfTarget } from '../../systems/permissions/resolveRank.js';
+import { badge, rankName, RANKS } from '../../systems/permissions/ranks.js';
+import { box, success } from '../../utils/formatter.js';
+import { UsageError, UserError } from '../../utils/errors.js';
+import { describeTarget, isTargetArg, resolveUserTarget } from '../../utils/targets.js';
 
 /**
  * .perm — change who may use a command at runtime, without editing its file.

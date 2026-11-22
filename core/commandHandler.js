@@ -102,6 +102,9 @@ class CommandHandler {
                         continue;
                     }
                     if (mod.enabled === false) continue;
+                    // Commands kept in a category folder (commands/<category>/x.js) default to that category.
+                    const folder = path.dirname(file).split(path.sep)[0];
+                    if (!mod.category && folder && folder !== '.') mod.category = folder.toLowerCase();
                     const name = mod.name.toLowerCase();
                     if (commands.has(name)) {
                         failures.push({ file, error: `Duplicate command name "${name}" (already in ${files.get(name)}).` });

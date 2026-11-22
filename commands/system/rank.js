@@ -1,21 +1,21 @@
-import config from '../config/config.js';
-import commandHandler from '../core/commandHandler.js';
-import { child } from '../core/logger.js';
-import { getOwners } from '../systems/owners/ownerStore.js';
-import { recentAudit } from '../systems/permissions/auditLog.js';
-import { dailyLimitFor } from '../systems/permissions/perks.js';
-import { effectiveRank } from '../systems/permissions/permissions.js';
-import { MANAGE_MIN } from '../systems/permissions/rankRules.js';
-import { changeRank } from '../systems/permissions/rankService.js';
-import { listStoredRanks } from '../systems/permissions/rankStore.js';
-import { rankOfTarget } from '../systems/permissions/resolveRank.js';
-import { badge, getRank, levelOf, rankName, RANKS } from '../systems/permissions/ranks.js';
-import { usedToday } from '../systems/permissions/dailyLimit.js';
-import { listBanned } from '../systems/users/userStore.js';
-import { formatRemaining, isDuration, parseDuration } from '../utils/duration.js';
-import { box, success } from '../utils/formatter.js';
-import { UsageError, UserError } from '../utils/errors.js';
-import { describeTarget, isTargetArg, resolveUserTarget } from '../utils/targets.js';
+import config from '../../config/config.js';
+import commandHandler from '../../core/commandHandler.js';
+import { child } from '../../core/logger.js';
+import { getOwners } from '../../systems/owners/ownerStore.js';
+import { recentAudit } from '../../systems/permissions/auditLog.js';
+import { dailyLimitFor } from '../../systems/permissions/perks.js';
+import { effectiveRank } from '../../systems/permissions/permissions.js';
+import { MANAGE_MIN } from '../../systems/permissions/rankRules.js';
+import { changeRank } from '../../systems/permissions/rankService.js';
+import { listStoredRanks } from '../../systems/permissions/rankStore.js';
+import { rankOfTarget } from '../../systems/permissions/resolveRank.js';
+import { badge, getRank, levelOf, rankName, RANKS } from '../../systems/permissions/ranks.js';
+import { usedToday } from '../../systems/permissions/dailyLimit.js';
+import { listBanned } from '../../systems/users/userStore.js';
+import { formatRemaining, isDuration, parseDuration } from '../../utils/duration.js';
+import { box, success } from '../../utils/formatter.js';
+import { UsageError, UserError } from '../../utils/errors.js';
+import { describeTarget, isTargetArg, resolveUserTarget } from '../../utils/targets.js';
 
 /**
  * .rank — the rank system from WhatsApp.

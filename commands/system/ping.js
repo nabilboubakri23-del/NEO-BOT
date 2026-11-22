@@ -1,6 +1,6 @@
-import config from '../config/config.js';
-import connectionManager from '../core/connection.js';
-import { box } from '../utils/formatter.js';
+import config from '../../config/config.js';
+import connectionManager from '../../core/connection.js';
+import { box } from '../../utils/formatter.js';
 
 export default {
     name: 'ping',

@@ -1,11 +1,11 @@
-import config from '../config/config.js';
-import { claimReward, getAccount, leaderboard, positionOf, transferCoins } from '../systems/economy/economyStore.js';
-import { bar, CLAIMS, progress, titleFor } from '../systems/economy/levels.js';
-import { formatRemaining } from '../utils/duration.js';
-import { mentionTarget } from '../utils/mentions.js';
-import { box } from '../utils/formatter.js';
-import { UsageError } from '../utils/errors.js';
-import { isTargetArg, resolveUserTarget, senderOf } from '../utils/targets.js';
+import config from '../../config/config.js';
+import { claimReward, getAccount, leaderboard, positionOf, transferCoins } from '../../systems/economy/economyStore.js';
+import { bar, CLAIMS, progress, titleFor } from '../../systems/economy/levels.js';
+import { formatRemaining } from '../../utils/duration.js';
+import { mentionTarget } from '../../utils/mentions.js';
+import { box } from '../../utils/formatter.js';
+import { UsageError } from '../../utils/errors.js';
+import { isTargetArg, resolveUserTarget, senderOf } from '../../utils/targets.js';
 
 /**
  * Levels and coins. XP comes from chatting (the "levels" plugin), games and rewards.

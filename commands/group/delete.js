@@ -1,5 +1,5 @@
-import { deleteMessage } from '../systems/moderation/actions.js';
-import { UsageError, UserError } from '../utils/errors.js';
+import { deleteMessage } from '../../systems/moderation/actions.js';
+import { UsageError, UserError } from '../../utils/errors.js';
 
 /**
  * .delete — delete the replied message for everyone.

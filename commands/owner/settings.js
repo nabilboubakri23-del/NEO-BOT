@@ -1,8 +1,8 @@
-import config from '../config/config.js';
-import { child } from '../core/logger.js';
-import { getAllSettings, resetSetting, SCHEMA, setSetting } from '../systems/settings/settingsStore.js';
-import { box, success } from '../utils/formatter.js';
-import { UsageError } from '../utils/errors.js';
+import config from '../../config/config.js';
+import { child } from '../../core/logger.js';
+import { getAllSettings, resetSetting, SCHEMA, setSetting } from '../../systems/settings/settingsStore.js';
+import { box, success } from '../../utils/formatter.js';
+import { UsageError } from '../../utils/errors.js';
 
 const log = child('settings');
 const P = config.bot.prefix;

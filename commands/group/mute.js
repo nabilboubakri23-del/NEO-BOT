@@ -1,11 +1,11 @@
-import config from '../config/config.js';
-import { assertCanModerate } from '../systems/moderation/targetRules.js';
-import { activeMute, listMutes, muteMember, unmuteMember } from '../systems/moderation/mutes.js';
-import { formatRemaining, isDuration, parseDuration } from '../utils/duration.js';
-import { mentionTarget } from '../utils/mentions.js';
-import { box } from '../utils/formatter.js';
-import { UsageError } from '../utils/errors.js';
-import { isTargetArg, resolveUserTarget, senderOf } from '../utils/targets.js';
+import config from '../../config/config.js';
+import { assertCanModerate } from '../../systems/moderation/targetRules.js';
+import { activeMute, listMutes, muteMember, unmuteMember } from '../../systems/moderation/mutes.js';
+import { formatRemaining, isDuration, parseDuration } from '../../utils/duration.js';
+import { mentionTarget } from '../../utils/mentions.js';
+import { box } from '../../utils/formatter.js';
+import { UsageError } from '../../utils/errors.js';
+import { isTargetArg, resolveUserTarget, senderOf } from '../../utils/targets.js';
 
 /**
  * Member mute: the bot deletes every message a muted member sends in this group

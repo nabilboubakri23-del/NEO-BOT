@@ -1,9 +1,9 @@
-import config from '../config/config.js';
-import { chat, isAiEnabled } from '../systems/ai/aiClient.js';
-import { forget, history, remember } from '../systems/ai/conversations.js';
-import { box } from '../utils/formatter.js';
-import { UsageError, UserError } from '../utils/errors.js';
-import { personKey, senderOf } from '../utils/targets.js';
+import config from '../../config/config.js';
+import { chat, isAiEnabled } from '../../systems/ai/aiClient.js';
+import { forget, history, remember } from '../../systems/ai/conversations.js';
+import { box } from '../../utils/formatter.js';
+import { UsageError, UserError } from '../../utils/errors.js';
+import { personKey, senderOf } from '../../utils/targets.js';
 
 /**
  * .ai <question> — chat with an AI (OpenAI-compatible API; the owner sets AI_API_KEY).

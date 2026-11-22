@@ -1,7 +1,7 @@
-import config from '../config/config.js';
-import { getChatSetting, setChatSetting } from '../systems/settings/settingsStore.js';
-import { box, success } from '../utils/formatter.js';
-import { UsageError } from '../utils/errors.js';
+import config from '../../config/config.js';
+import { getChatSetting, setChatSetting } from '../../systems/settings/settingsStore.js';
+import { box, success } from '../../utils/formatter.js';
+import { UsageError } from '../../utils/errors.js';
 
 export default {
     name: 'bot',

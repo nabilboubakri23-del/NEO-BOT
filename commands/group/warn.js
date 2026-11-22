@@ -1,12 +1,12 @@
-import config from '../config/config.js';
-import { applyWarning } from '../systems/moderation/actions.js';
-import { getGroupOption } from '../systems/moderation/groupConfig.js';
-import { assertCanModerate } from '../systems/moderation/targetRules.js';
-import { clearWarnings, listWarnings, removeWarning, warningCount, warningHistory } from '../systems/moderation/warnings.js';
-import { mentionTarget } from '../utils/mentions.js';
-import { box } from '../utils/formatter.js';
-import { UsageError } from '../utils/errors.js';
-import { isTargetArg, resolveUserTarget, senderOf, targetJid } from '../utils/targets.js';
+import config from '../../config/config.js';
+import { applyWarning } from '../../systems/moderation/actions.js';
+import { getGroupOption } from '../../systems/moderation/groupConfig.js';
+import { assertCanModerate } from '../../systems/moderation/targetRules.js';
+import { clearWarnings, listWarnings, removeWarning, warningCount, warningHistory } from '../../systems/moderation/warnings.js';
+import { mentionTarget } from '../../utils/mentions.js';
+import { box } from '../../utils/formatter.js';
+import { UsageError } from '../../utils/errors.js';
+import { isTargetArg, resolveUserTarget, senderOf, targetJid } from '../../utils/targets.js';
 
 /**
  * Warnings with an automatic kick at the group's limit (".gset warnlimit <n>", default 3).

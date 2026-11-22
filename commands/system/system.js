@@ -1,8 +1,8 @@
 import os from 'node:os';
-import config from '../config/config.js';
-import { hasFfmpeg } from '../systems/media/ffmpeg.js';
-import { hasImageLib } from '../systems/media/imageLib.js';
-import { box, formatBytes, formatDuration, section } from '../utils/formatter.js';
+import config from '../../config/config.js';
+import { hasFfmpeg } from '../../systems/media/ffmpeg.js';
+import { hasImageLib } from '../../systems/media/imageLib.js';
+import { box, formatBytes, formatDuration, section } from '../../utils/formatter.js';
 
 /**
  * .system — server resources: memory (process and host), CPU, load, uptime and

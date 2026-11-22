@@ -1,9 +1,9 @@
-import config from '../config/config.js';
-import { invalidateGroup, getGroup } from '../systems/groups/groupCache.js';
-import { requireImageLib } from '../systems/media/imageLib.js';
-import { downloadMedia, findMedia } from '../utils/media.js';
-import { box, success } from '../utils/formatter.js';
-import { UsageError, UserError } from '../utils/errors.js';
+import config from '../../config/config.js';
+import { invalidateGroup, getGroup } from '../../systems/groups/groupCache.js';
+import { requireImageLib } from '../../systems/media/imageLib.js';
+import { downloadMedia, findMedia } from '../../utils/media.js';
+import { box, success } from '../../utils/formatter.js';
+import { UsageError, UserError } from '../../utils/errors.js';
 
 /**
  * Group settings (group admins; the bot must be a group admin):

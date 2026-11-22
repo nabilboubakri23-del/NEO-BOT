@@ -1,8 +1,8 @@
-import config from '../config/config.js';
-import { sendButtons } from '../systems/menus/interactiveMenu.js';
-import { getGroupConfig, GROUP_SCHEMA, setGroupOption } from '../systems/moderation/groupConfig.js';
-import { box, success } from '../utils/formatter.js';
-import { UsageError } from '../utils/errors.js';
+import config from '../../config/config.js';
+import { sendButtons } from '../../systems/menus/interactiveMenu.js';
+import { getGroupConfig, GROUP_SCHEMA, setGroupOption } from '../../systems/moderation/groupConfig.js';
+import { box, success } from '../../utils/formatter.js';
+import { UsageError } from '../../utils/errors.js';
 
 /**
  * Per-group moderation options (group admins):

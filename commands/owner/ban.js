@@ -1,10 +1,10 @@
-import config from '../config/config.js';
-import { child } from '../core/logger.js';
-import { banUser, unbanUser } from '../systems/permissions/rankService.js';
-import { listBanned } from '../systems/users/userStore.js';
-import { box, success } from '../utils/formatter.js';
-import { UsageError } from '../utils/errors.js';
-import { describeTarget, isTargetArg, resolveUserTarget } from '../utils/targets.js';
+import config from '../../config/config.js';
+import { child } from '../../core/logger.js';
+import { banUser, unbanUser } from '../../systems/permissions/rankService.js';
+import { listBanned } from '../../systems/users/userStore.js';
+import { box, success } from '../../utils/formatter.js';
+import { UsageError } from '../../utils/errors.js';
+import { describeTarget, isTargetArg, resolveUserTarget } from '../../utils/targets.js';
 
 /**
  * .ban / .unban / .banlist — banned users (🚫 Banned rank) are ignored by the bot everywhere.

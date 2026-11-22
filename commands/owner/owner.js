@@ -1,9 +1,9 @@
-import config from '../config/config.js';
-import { child } from '../core/logger.js';
-import * as owners from '../systems/owners/ownerStore.js';
-import { audit } from '../systems/permissions/auditLog.js';
-import { box } from '../utils/formatter.js';
-import { resolveUserTarget } from '../utils/targets.js';
+import config from '../../config/config.js';
+import { child } from '../../core/logger.js';
+import * as owners from '../../systems/owners/ownerStore.js';
+import { audit } from '../../systems/permissions/auditLog.js';
+import { box } from '../../utils/formatter.js';
+import { resolveUserTarget } from '../../utils/targets.js';
 
 /**
  * .owner — manage the 🔱 Creator (main owner) and the 👑 Owners (co-owners).

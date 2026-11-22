@@ -1,7 +1,7 @@
 import { isJidGroup, isJidNewsletter, jidNormalizedUser } from 'baileys';
-import config from '../config/config.js';
-import { box } from '../utils/formatter.js';
-import { UserError } from '../utils/errors.js';
+import config from '../../config/config.js';
+import { box } from '../../utils/formatter.js';
+import { UserError } from '../../utils/errors.js';
 
 /**
  * .jid — get the ID (JID) of a group or a channel.

@@ -1,11 +1,11 @@
 import os from 'node:os';
-import config from '../config/config.js';
-import connectionManager from '../core/connection.js';
-import commandHandler from '../core/commandHandler.js';
-import docStore from '../systems/database/docStore.js';
-import { getStats } from '../systems/stats/statsStore.js';
-import { userCount } from '../systems/users/userStore.js';
-import { box, formatBytes, formatDuration, section } from '../utils/formatter.js';
+import config from '../../config/config.js';
+import connectionManager from '../../core/connection.js';
+import commandHandler from '../../core/commandHandler.js';
+import docStore from '../../systems/database/docStore.js';
+import { getStats } from '../../systems/stats/statsStore.js';
+import { userCount } from '../../systems/users/userStore.js';
+import { box, formatBytes, formatDuration, section } from '../../utils/formatter.js';
 
 export default {
     name: 'stats',
