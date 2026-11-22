@@ -1,4 +1,4 @@
-# NEO BOT — V1.3.0 (Permission System)
+# NEO BOT — V1.4.0 (Moderation, Media & Games)
 
 Modular WhatsApp bot. Phase 1: connection, dual authentication, encrypted sessions,
 auto-reconnect, message handling, real interactive list menu, `.menu` and `.ping`.
@@ -64,6 +64,55 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 | `.tagall [message]` | group admins | Mention every member. |
 | `.welcome on/off` | group admins | Join/leave greetings (from the `welcome` plugin). |
 | `.plugins [info/enable/disable/install/remove/reload]` | 👑 owner+ | Manage plugins. |
+| `.myid [user]` (aliases id, whoami) | 👤 everyone | Now also shows the number / LID / rank of a mentioned or replied user. |
+| `.system` (aliases ram, sysinfo, server) | 👤 everyone | Process and host RAM, CPU, load, uptime, available media tools. |
+| **Moderation (v1.4.0)** | | |
+| `.warn <user> [reason]` | group admins (bot admin) | Warning; at the group's limit (default 3) the member is removed. |
+| `.unwarn <user> [n\|all]` (delwarn, resetwarn) · `.warnings [user\|list]` | group admins · everyone | Remove warnings · see warnings and their reasons. |
+| `.mute <user> [30m\|2h\|1d]` · `.unmute` · `.mutelist` | group admins (bot admin) | The bot deletes a muted member's messages, optionally for a while. |
+| `.gset [option value]` | group admins | Per-group options: `antilink`, `linkscope`, `antivcard`, `warnlimit`, `adminonly`, `levelup` (buttons panel). |
+| `.antilink <off\|delete\|warn\|kick> [invites\|all]` · `.antivcard <off\|delete\|warn\|kick>` | group admins | Shortcuts for the two guards. |
+| `.open` / `.close` · `.editinfo <admins\|all>` | group admins (bot admin) | Who can send messages · who can edit group info. |
+| `.setname` · `.setdesc` · `.setpp` | group admins (bot admin) | Group name, description, picture (`.setpp` needs the optional `jimp` package). |
+| `.link` · `.revoke` · `.requests [approve\|reject] [all\|n]` | group admins (bot admin) | Invite link, reset it, pending join requests. |
+| `.delete` (del) | group admins | Delete the replied message for everyone. |
+| `.hidetag <text>` (htag) | group admins | Notify every member without listing them. `.tagall` now lists admins and members apart. |
+| **Media** | | |
+| `.sticker [pack \| author]` (s) | 👤 everyone | Image / GIF / short video → sticker (ffmpeg). |
+| `.take <pack> \| [author]` (wm) | 👤 everyone | Re-label a sticker (pure JS, no ffmpeg). |
+| `.toimage` · `.tomp3` · `.togif` | 👤 everyone | Sticker → image, video / voice → MP3, video → GIF. |
+| **Games & levels** | | |
+| `.xo [bot\|end]` (ttt) | 👤 everyone | Tic-tac-toe vs a friend or the bot (plugin `tictactoe`). |
+| `.quiz [flag\|math\|word\|hint\|stop]` (flag, math, scramble) | 👤 everyone | 5-round chat quizzes, offline questions (plugin `quiz`). |
+| `.profile [user]` (level, xp) · `.leaderboard [xp\|coins\|wins]` (lb, top) | 👤 everyone | Level, XP, coins, wins · top 10. |
+| `.daily` / `.weekly` / `.monthly` · `.give <user> <amount>` | 👤 everyone | Periodic coin rewards · give coins. |
+| **AI & automation** | | |
+| `.ai <question>` (ask, gpt) · `.ai reset` | 👤 everyone | OpenAI-compatible chat; needs `AI_API_KEY`. Change access with `.perm set ai premium`. |
+| `.autoreply` / `.autoreact on\|off\|list\|add\|del` | admins on/off · owners add/del | Auto-replies / reactions, OFF in every chat by default (plugin `autoresponder`). |
+| **Owner** | | |
+| `.join <link>` · `.leave` · `.setbotpp` | 👑 owner+ | Join a group, leave this group, bot profile picture. |
+
+## Moderation, Media & Games (v1.4.0)
+
+Ported from the Pomni AI bot and rewritten for NEO BOT's architecture (ranks, docStore, event bus, plugins).
+
+- **Group guard** (`systems/moderation/`): a core `message` listener deletes links / contact cards per the group's
+  `.gset` options (delete, warn, or kick) and the messages of muted members. Group admins and 🛡️ Moderator+ are never
+  affected, and nothing is enforced while the bot is not a group admin. Bot notices are rate-limited per member.
+  `adminonly` makes regular members' commands silent in that group.
+- **Warnings** are shared by `.warn` and the guard (`actions.js`): one count per member, kick at `warnlimit`.
+  Ranked members are protected from lower ranks, the creator and the bot can never be targeted.
+- **Stores** (MongoDB `documents` or `data/*.json`): `groupConfig`, `warnings`, `mutes`, `economy`.
+- **Media** (`systems/media/`): stickers are built with ffmpeg (feature-detected, `FFMPEG_PATH`; Termux: `pkg install ffmpeg`)
+  and labelled by a pure-JS WebP EXIF writer, so `.take` works without ffmpeg. Without ffmpeg, image/video stickers
+  and video → MP3 answer with a clear message; voice → MP3 and video → GIF still work. Downloads are capped at 25 MB.
+  Group / bot pictures need the optional `jimp` package (`npm install jimp`, ~36 MB) — not bundled.
+- **Games** are plugins (`plugins/tictactoe.js`, `plugins/quiz.js`) with per-chat sessions and inactivity timeouts
+  (`systems/games/`); questions are generated offline. Wins pay coins and XP.
+- **Levels** (`plugins/levels.js`): 5–15 XP per message, at most once a minute; level-up announcements are opt-in per group (`.gset levelup on`).
+- **AI** (`.ai`): set `AI_API_KEY` (and optionally `AI_BASE_URL`, `AI_MODEL`, `AI_SYSTEM_PROMPT`). No key is ever committed.
+- **Plugin API**: `api.allows(sock, message)` tells a hook whether the bot answers this sender in this chat (bans, mode, chat off).
+- **Serializer**: `message.quoted.key` (delete / download the replied message), `utils/media.js` (`findMedia`, `downloadMedia`), `utils/mentions.js`.
 
 ## Permission System (v1.3.0)
 
@@ -180,6 +229,12 @@ core/messageHandler.js     messages.upsert → filter → route
 core/commandHandler.js     command engine V2 (pipeline, errors, interactions)
 core/commandParser.js      args / flags / suggestions
 systems/permissions/       ranks, rank store, overrides, perks, audit log, policy
+systems/moderation/        group options, warnings, mutes, detectors, guard, shared actions
+systems/media/             ffmpeg runner, WebP sticker EXIF, sticker builder, converters
+systems/games/             sessions, tic-tac-toe, quiz generators, countries
+systems/economy/           XP / levels math, coins and rewards store
+systems/ai/                OpenAI-compatible client, short conversation memory
+systems/automation/        auto-reply / auto-react matching
 systems/security/          encryption, dedupe, rate limiter
 systems/settings/ users/ stats/ database/ groups/
 core/logger.js             pino with redaction

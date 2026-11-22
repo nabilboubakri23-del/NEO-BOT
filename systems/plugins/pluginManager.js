@@ -8,6 +8,8 @@ import events from '../../core/events.js';
 import docStore from '../database/docStore.js';
 import { describeError } from '../../utils/errors.js';
 import { resolveRank } from '../permissions/resolveRank.js';
+import { createAccess } from '../permissions/permissions.js';
+import { checkPolicy } from '../permissions/policy.js';
 import { atLeast } from '../permissions/ranks.js';
 
 const log = child('plugins');
@@ -77,6 +79,9 @@ class PluginManager {
                 of: (message) => resolveRank(message),
                 atLeast: (message, rank) => atLeast(resolveRank(message).name, rank)
             },
+            // Would the bot answer this sender here (not banned, bot mode, chat switched on)?
+            // Hooks that reply to plain messages (games, auto-replies) should check it first.
+            allows: (sock, message) => checkPolicy(message, createAccess(sock, message)).ok,
             store: {
                 open: (docName, defaults) => docStore.open(`plugin.${name}.${docName}`, defaults),
                 touch: (docName) => docStore.touch(`plugin.${name}.${docName}`)

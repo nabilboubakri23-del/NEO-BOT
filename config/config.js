@@ -25,7 +25,7 @@ const config = Object.freeze({
     }),
     bot: Object.freeze({
         name: process.env.BOT_NAME || 'NEO BOT',
-        version: '1.3.0',
+        version: '1.4.0',
         prefix: process.env.BOT_PREFIX || '.',
         footer: 'Advanced WhatsApp Assistant',
         website: process.env.BOT_WEBSITE || 'https://github.com'
@@ -73,6 +73,21 @@ const config = Object.freeze({
         // Render sets RENDER_EXTERNAL_URL automatically.
         url: process.env.KEEP_ALIVE_URL || process.env.RENDER_EXTERNAL_URL || '',
         intervalMs: toInt(process.env.KEEP_ALIVE_INTERVAL_MS, 10 * 60 * 1000)
+    }),
+
+    media: Object.freeze({
+        // ffmpeg binary used by sticker / convert commands (feature-detected; optional).
+        ffmpegPath: process.env.FFMPEG_PATH || 'ffmpeg',
+        stickerPack: process.env.STICKER_PACK || process.env.BOT_NAME || 'NEO BOT',
+        stickerAuthor: process.env.STICKER_AUTHOR || ''
+    }),
+
+    ai: Object.freeze({
+        // Any OpenAI-compatible chat completions API. Disabled while AI_API_KEY is empty.
+        apiKey: process.env.AI_API_KEY || '',
+        baseUrl: (process.env.AI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, ''),
+        model: process.env.AI_MODEL || 'gpt-4o-mini',
+        systemPrompt: process.env.AI_SYSTEM_PROMPT || ''
     }),
 
     devtools: Object.freeze({

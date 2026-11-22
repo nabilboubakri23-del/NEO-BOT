@@ -18,6 +18,7 @@ import { getSetting } from '../systems/settings/settingsStore.js';
 import { trackMessage } from '../systems/users/userStore.js';
 import { countMessage } from '../systems/stats/statsStore.js';
 import events from './events.js';
+import { isSelf } from '../utils/targets.js';
 
 const log = child('messages');
 
@@ -83,7 +84,14 @@ const serialize = (sock, raw) => {
               sender: context.participant ? jidNormalizedUser(context.participant) : chat,
               message: context.quotedMessage,
               type: getContentType(context.quotedMessage),
-              text: (extractText(context.quotedMessage, getContentType(context.quotedMessage)) || '').trim()
+              text: (extractText(context.quotedMessage, getContentType(context.quotedMessage)) || '').trim(),
+              // Key of the replied message: lets commands delete it or download its media.
+              key: {
+                  remoteJid: chat,
+                  id: context.stanzaId,
+                  fromMe: isSelf(sock, context.participant || (isGroup ? '' : chat)),
+                  ...(isGroup && context.participant ? { participant: context.participant } : {})
+              }
           }
         : null;
     if (type === 'audioMessage' && content.audioMessage?.ptt) mediaType = 'voice';

@@ -10,6 +10,7 @@ export const CATEGORIES = Object.freeze([
     { key: 'media', title: 'MEDIA LAB', description: 'Image, video and audio tools.', section: 'MAIN SYSTEMS', aliases: ['media_lab'] },
     { key: 'knowledge', title: 'KNOWLEDGE', description: 'Wikipedia, search and facts.', section: 'OTHER SYSTEMS', aliases: ['search'] },
     { key: 'automation', title: 'AUTOMATION', description: 'Auto reply, schedules, reminders.', section: 'OTHER SYSTEMS', aliases: [] },
+    { key: 'games', title: 'GAMES & LEVELS', description: 'Games, levels, coins and rewards.', section: 'OTHER SYSTEMS', aliases: ['game', 'fun', 'economy', 'bank', 'levels'] },
     { key: 'group', title: 'GROUP MANAGER', description: 'Group admin tools.', section: 'OTHER SYSTEMS', aliases: ['groups', 'admin'] },
     { key: 'system', title: 'SYSTEM', description: 'Bot info, statistics and help.', section: 'OTHER SYSTEMS', aliases: ['general', 'info'] },
     { key: 'owner', title: 'OWNER PANEL', description: 'Owners, settings, dev console.', section: 'OWNER', aliases: ['dev'], ownerOnly: true }

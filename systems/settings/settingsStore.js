@@ -42,7 +42,8 @@ const ensure = () => {
     return doc;
 };
 
-const coerce = (spec, key, raw) => {
+/** Validates and converts a raw text value against one schema entry (shared by every typed store). */
+export const coerce = (spec, key, raw) => {
     const value = String(raw).trim().toLowerCase();
     switch (spec.type) {
         case 'bool':

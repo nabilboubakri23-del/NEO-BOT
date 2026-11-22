@@ -17,6 +17,8 @@ import { loadUsers } from './systems/users/userStore.js';
 import { loadStats } from './systems/stats/statsStore.js';
 import pluginManager from './systems/plugins/pluginManager.js';
 import { loadPermissions } from './systems/permissions/index.js';
+import { installModerationGuard, loadModeration } from './systems/moderation/index.js';
+import { loadEconomy } from './systems/economy/economyStore.js';
 
 const log = logger.child({ module: 'main' });
 
@@ -54,7 +56,8 @@ const main = async () => {
     assertEncryptionReady();
     loadOwners();
     await docStore.init();
-    await Promise.all([loadSettings(), loadUsers(), loadStats(), loadPermissions()]);
+    await Promise.all([loadSettings(), loadUsers(), loadStats(), loadPermissions(), loadModeration(), loadEconomy()]);
+    installModerationGuard(); // before plugins, so removed messages never reach plugin hooks
     pluginManager.attach(commandHandler);
     await pluginManager.load(); // also (re)loads commands, merging plugin commands in
     setUnlinkHandler(() => connectionManager.unlink());
