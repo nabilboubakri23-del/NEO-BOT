@@ -330,7 +330,8 @@ variable when explicitly selected. No new dependency is required.
 
 - General chat: `.ai`, `.ask`, `.gpt`, `.chat`, `.بوت`, `.اوبن` followed by a question.
 - Characters: `.eren` / `.إيرن`, `.itachi` / `.إيتاتشي`, `.luffy` / `.لوفي`,
-  `.marin` / `.مارين`, `.mikasa` / `.ميكاسا`, `.pomni` / `.بومني`.
+  `.marin` / `.مارين`, `.mikasa` / `.ميكاسا`, `.escanor` / `.إسكانور`.
+- NEO BOT assistant: `.neo-bot` / `.neobot` (display name: NEO BOT).
 - Example: `.لوفي شنو هو الحلم ديالك؟`
 - Reset a conversation with the command plus `reset`, such as `.luffy reset`.
 - Each character has separate short memory for each person in each chat.

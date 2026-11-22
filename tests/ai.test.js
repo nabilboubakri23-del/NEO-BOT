@@ -143,3 +143,30 @@ test('AI commands: cross-character concurrent request is rejected and failures r
     globalThis.fetch = async () => response();
     await run(general, c, 'recovered');
 });
+
+
+test('NEO BOT replaces the removed persona and Escanor has separate roleplay', async (t) => {
+    const original = globalThis.fetch;
+    t.after(() => { globalThis.fetch = original; });
+    const registry = new CommandHandler();
+    const loaded = await registry.load();
+    assert.deepEqual(loaded.failures, []);
+    assert.equal(registry.get('pomni'), undefined);
+    assert.equal(registry.get('بومني'), undefined);
+    const neo = registry.get('neo-bot');
+    assert.equal(registry.get('neobot'), neo);
+    assert.equal(neo.name, 'neo-bot');
+    const escanor = registry.get('escanor');
+    assert.equal(registry.get('إسكانور'), escanor);
+    assert.equal(registry.get('اسكانور'), escanor);
+    let payload;
+    globalThis.fetch = async (_url, init) => { payload = JSON.parse(init.body); return response(); };
+    const c = conversation('212600123460');
+    await run(neo, c, 'hello');
+    assert.match(payload.messages[0].content, /Identify yourself only as NEO BOT/);
+    assert.doesNotMatch(payload.messages[0].content, /pomni|بومني/i);
+    assert.match(c.replies.at(-1), /NEO BOT/);
+    await run(escanor, c, 'hello');
+    assert.match(payload.messages[0].content, /Escanor from The Seven Deadly Sins/);
+    assert.equal(payload.messages.length, 2);
+});
