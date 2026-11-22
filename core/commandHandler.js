@@ -310,6 +310,7 @@ class CommandHandler {
         try {
             await executor();
         } catch (error) {
+            if (error?.code === 'SEND_DROPPED') return; // anti-ban held the reply back on purpose
             failed = !error?.expose;
             if (failed) events.emit('command:error', { sock, message, command, error });
             await this.#replyError(message, command, error, access);

@@ -19,6 +19,7 @@ import { trackMessage } from '../systems/users/userStore.js';
 import { countMessage } from '../systems/stats/statsStore.js';
 import events from './events.js';
 import { isSelf } from '../utils/targets.js';
+import governor from '../systems/antiban/index.js';
 
 const log = child('messages');
 
@@ -35,6 +36,29 @@ const extractText = (content, type) => {
         case 'imageMessage': return content.imageMessage?.caption;
         case 'videoMessage': return content.videoMessage?.caption;
         case 'documentMessage': return content.documentMessage?.caption;
+        default: return '';
+    }
+};
+
+/**
+ * Text a message carries outside its body: poll question and options, event details,
+ * location name, document file name, contact names. Scanned by moderation only.
+ */
+const extractExtraText = (content, type) => {
+    const c = content[type] || {};
+    switch (type) {
+        case 'pollCreationMessage':
+        case 'pollCreationMessageV2':
+        case 'pollCreationMessageV3':
+        case 'pollCreationMessageV5':
+            return [c.name, ...(c.options || []).map((o) => o.optionName)].filter(Boolean).join('\n');
+        case 'eventMessage': return [c.name, c.description, c.location?.name].filter(Boolean).join('\n');
+        case 'locationMessage':
+        case 'liveLocationMessage': return [c.name, c.address, c.comment, c.caption].filter(Boolean).join('\n');
+        case 'documentMessage': return c.fileName || '';
+        case 'contactMessage': return c.displayName || '';
+        case 'contactsArrayMessage': return [c.displayName, ...(c.contacts || []).map((x) => x.displayName)].filter(Boolean).join('\n');
+        case 'groupInviteMessage': return [c.groupName, c.caption].filter(Boolean).join('\n');
         default: return '';
     }
 };
@@ -108,6 +132,7 @@ const serialize = (sock, raw) => {
         type,
         mediaType,
         text: (extractText(content, type) || '').trim(),
+        extraText: extractExtraText(content, type),
         selectionId: extractSelection(content, type),
         quoted,
         mentions: (context?.mentionedJid || []).map((j) => jidNormalizedUser(j)),
@@ -117,6 +142,28 @@ const serialize = (sock, raw) => {
         send: (payload) => sock.sendMessage(chat, typeof payload === 'string' ? { text: payload } : payload),
         react: (emoji) => sock.sendMessage(chat, { react: { text: emoji, key: raw.key } })
     };
+    return message;
+};
+
+const EDIT_TYPE = 14; // proto.Message.ProtocolMessage.Type.MESSAGE_EDIT
+
+/**
+ * An edit arrives as a protocolMessage pointing at the original message. Returns a
+ * normal message object holding the NEW content and the ORIGINAL key (so moderation
+ * deletes the edited message itself), or null when this is not an edit.
+ */
+const serializeEdit = (sock, raw) => {
+    const content = normalizeMessageContent(raw.message);
+    const proto = content?.protocolMessage;
+    if (!proto || proto.type !== EDIT_TYPE || !proto.editedMessage || !proto.key) return null;
+    const original = {
+        ...proto.key,
+        remoteJid: raw.key.remoteJid,
+        ...(raw.key.participant ? { participant: raw.key.participant } : {}),
+        ...(raw.key.participantAlt ? { participantAlt: raw.key.participantAlt } : {})
+    };
+    const message = serialize(sock, { ...raw, key: { ...raw.key, ...original }, message: proto.editedMessage });
+    if (message) message.isEdit = true;
     return message;
 };
 
@@ -154,9 +201,19 @@ export const handleUpsert = async (sock, { messages, type }) => {
             // Channels: only the owner's own command posts (e.g. ".jid" in your channel) are handled.
             if (isJidNewsletter(jid) && !raw.key.fromMe) continue;
             if (isDuplicate(raw.key.id)) continue;
+            governor.noteInbound(jid); // this chat wrote to us: replies are not cold messages
 
             const ts = Number(raw.messageTimestamp || 0);
             if (ts && ts < BOOT_TIME - MAX_AGE_SECONDS) continue;
+
+            // Edited messages are re-checked by moderation (plugins listen on 'message:edit'),
+            // but never run commands or count as new activity.
+            const edit = serializeEdit(sock, raw);
+            if (edit) {
+                await resolvePhoneNumber(sock, edit);
+                if (!edit.fromMe) await events.barrier('message:edit', { sock, message: edit });
+                continue;
+            }
 
             const message = serialize(sock, raw);
             if (!message) continue;

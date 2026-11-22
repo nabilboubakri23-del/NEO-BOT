@@ -310,3 +310,13 @@ Every bot message shows as "Forwarded from channel" (name + picture of the chann
 - Reconnection is unlimited by default (backoff up to 60 s), so the bot comes back by itself when the internet returns.
 - The session cleaner checks the session hourly; above `SESSION_CLEAN_THRESHOLD` entries it removes stale disposable entries (old Signal sessions, group sender keys, device caches) unused for `SESSION_CLEAN_MIN_AGE_HOURS`. Owners can run `.session` / `.session clean`.
 - Keep-alive pings `/health` at most every 13 minutes (Render free sleeps after 15) and retries a failed ping after 1 minute. For extra safety add a free external monitor (e.g. cron-job.org or UptimeRobot) on `https://<your-service>.onrender.com/health` every 10 minutes: it can wake the service even after a restart.
+
+## Protection systems (v1.5.0)
+
+**Anti-ban governor** (`systems/antiban/`): every outgoing message passes it. Token bucket (burst + per-minute), hourly ceiling, one reply at a time per chat with a gap and jitter, capped queue per chat, identical text to the same chat dropped after 2 in 10 s, no cold DMs, and automatic pause with back-off on WhatsApp rate-limit errors. Owner: `.antiban`.
+
+**Anti-profanity** (`systems/moderation/profanity/`): Arabic (Gulf, Levantine, Egyptian, Iraqi, Maghrebi, Sudanese/Yemeni), Arabizi and English lists, matched after normalization (tashkeel, tatweel, invisible characters, letter variants, look-alikes, leetspeak, repeated letters, symbols and spaces between letters). Prefixes/suffixes are handled; short words never match inside other words. Levels: `normal` (severe) and `strict` (+ mild insults). Group admins: `.antibad <off|delete|warn|kick> [normal|strict]`, `.badword add|remove|allow|unallow|list|test`.
+
+**Anti-spam** (`systems/moderation/spam/`): flood (all message types), normalized repeats, mass tags, crash/bomb texts. Whole bursts are deleted; strikes escalate (mute 5 min → 30 min → 2 h, or kick on the 2nd strike). `.antispam <off|delete|warn|mute|kick> [limit]`, `.protect` for status.
+
+Edits, captions, polls, documents and contact names are all scanned, so "send clean then edit" does not work. Group admins and bot staff are exempt; the bot must be a group admin.

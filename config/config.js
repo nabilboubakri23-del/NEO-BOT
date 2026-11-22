@@ -77,6 +77,17 @@ const config = Object.freeze({
         token: process.env.WEB_SETUP_TOKEN || ''
     }),
 
+    antiban: Object.freeze({
+        // Outgoing-message governor that keeps the bot's sending pattern human-like.
+        enabled: process.env.ANTIBAN_ENABLED !== 'false',
+        perMinute: toInt(process.env.ANTIBAN_PER_MINUTE, 20),
+        perHour: toInt(process.env.ANTIBAN_PER_HOUR, 400),
+        burst: toInt(process.env.ANTIBAN_BURST, 5),
+        chatGapMs: toInt(process.env.ANTIBAN_CHAT_GAP_MS, 700),
+        // Never start a private chat with someone who has not written to the bot first.
+        blockColdDm: process.env.ANTIBAN_BLOCK_COLD_DM !== 'false'
+    }),
+
     keepAlive: Object.freeze({
         // Public URL pinged to stop free hosts from idling the service.
         // Render sets RENDER_EXTERNAL_URL automatically.

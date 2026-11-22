@@ -1,4 +1,5 @@
 import { applyChannelForward } from '../systems/branding/channelForward.js';
+import governor, { applySendGovernor } from '../systems/antiban/index.js';
 import { EventEmitter } from 'node:events';
 import makeWASocket, {
     Browsers,
@@ -126,6 +127,7 @@ class ConnectionManager extends EventEmitter {
                 };
             }
             applyChannelForward(sock);
+            applySendGovernor(sock, governor); // outermost: every send passes the anti-ban governor
             this.sock = sock;
             log.info({ attempt: this.attempts }, 'Socket initialized. Connecting to WhatsApp...');
 
@@ -181,6 +183,8 @@ class ConnectionManager extends EventEmitter {
             this.badSessionStrikes = 0;
             this.authChoice = null;
             this.connectedAt = Date.now();
+            governor.noteInbound(sock.user?.id); // "Message yourself" chat
+            if (sock.user?.lid) governor.noteInbound(sock.user.lid);
             authentication.update({ state: 'connected', qrDataUrl: null, pairingCode: null, error: null });
             if (wasAuthenticating) {
                 console.log('\n[ NEO BOT ]\nAuthentication successful.\nWhatsApp connected.\nSession saved successfully.\n');
