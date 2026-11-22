@@ -1,3 +1,4 @@
+import { proto, generateMessageIDV2 } from 'baileys';
 import config from '../../config/config.js';
 import { getSetting } from '../settings/settingsStore.js';
 import { randomCard } from './thumbnailCard.js';
@@ -91,22 +92,42 @@ export const decorateRelayed = (jid, msg) => {
     if (!config.channel.jid || isSkippedTarget(jid)) return msg;
     const interactive = findInteractive(msg);
     if (!interactive || interactive.contextInfo?.forwardedNewsletterMessageInfo) return msg;
-    const branded = brandingContext(interactive.contextInfo || {}, randomCard);
+    const branded = brandingContext(interactive.contextInfo || {}, () => (interactive.header?.hasMediaAttachment ? null : randomCard()));
     if (branded) interactive.contextInfo = branded.ctx;
     return msg;
+};
+
+/** Sends a text edit whose new content keeps the branding context. */
+const sendBrandedEdit = async (sock, relay, jid, content) => {
+    const message = {
+        protocolMessage: {
+            key: content.edit,
+            type: proto.Message.ProtocolMessage.Type.MESSAGE_EDIT,
+            timestampMs: Date.now(),
+            editedMessage: { extendedTextMessage: { text: content.text, contextInfo: content.contextInfo } }
+        }
+    };
+    const id = generateMessageIDV2(sock.user?.id);
+    await relay(jid, message, { messageId: id, additionalAttributes: { edit: String(jid).endsWith('@newsletter') ? '3' : '1' } });
+    return { key: { remoteJid: jid, fromMe: true, id }, message };
 };
 
 /** Wraps sock.sendMessage and sock.relayMessage once so every message gets the branding. */
 export const applyChannelForward = (sock) => {
     if (sock.__channelForward) return sock;
     const send = sock.sendMessage.bind(sock);
+    const relay = sock.relayMessage?.bind(sock);
     sock.sendMessage = async (jid, content, options) => {
         const { content: decorated, card } = decorateWithCard(jid, content);
+        // Baileys puts contextInfo on the protocolMessage of an edit, where WhatsApp ignores it.
+        // Build the edit ourselves so the card/header sit inside the edited message.
+        if (relay && content?.edit && 'text' in content && decorated.contextInfo) {
+            return sendBrandedEdit(sock, relay, jid, decorated);
+        }
         const sent = await send(jid, decorated, options);
         if (card && !('edit' in (content || {}))) rememberCard(sent?.key?.id, card);
         return sent;
     };
-    const relay = sock.relayMessage?.bind(sock);
     if (relay) sock.relayMessage = (jid, msg, opts) => relay(jid, decorateRelayed(jid, msg), opts);
     sock.__channelForward = true;
     return sock;

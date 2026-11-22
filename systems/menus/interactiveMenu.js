@@ -1,6 +1,8 @@
 import { Button } from 'baileys';
 import { child } from '../../core/logger.js';
 import { describeError } from '../../utils/errors.js';
+import { randomThumb } from '../branding/thumbnailCard.js';
+import { getSetting } from '../settings/settingsStore.js';
 
 const log = child('menus');
 
@@ -19,8 +21,28 @@ const sendOptions = (sock, quoted) => (quoted ? { quoted, userJid: sock.user?.id
  * library already appends the correct <biz> node for native-flow messages,
  * so the stanza ended up with two <biz> nodes and WhatsApp dropped it silently.
  */
+const cardEnabled = () => {
+    try {
+        return getSetting('thumbnailCard');
+    } catch {
+        return true;
+    }
+};
+
 const relayBuilt = async (sock, builder, jid, quoted) => {
-    const msg = await builder.build(jid, sendOptions(sock, quoted));
+    // WhatsApp does not draw preview cards on button messages, so the picture goes in the header.
+    const thumb = !builder._data && sock.waUploadToServer && cardEnabled() ? randomThumb() : null;
+    let msg;
+    if (thumb) {
+        try {
+            builder.setImage(thumb);
+            msg = await builder.build(jid, sendOptions(sock, quoted));
+        } catch (error) {
+            log.warn(`Menu picture failed, sending without it: ${describeError(error)}`);
+            builder._data = null;
+        }
+    }
+    msg = msg || (await builder.build(jid, sendOptions(sock, quoted)));
     await sock.relayMessage(msg.key.remoteJid, msg.message, { messageId: msg.key.id });
     return msg;
 };

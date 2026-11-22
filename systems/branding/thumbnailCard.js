@@ -68,6 +68,9 @@ const pick = (list) => list[Math.floor(Math.random() * list.length)];
 
 export const thumbCount = () => thumbs.length;
 
+/** A random picture buffer, or null. */
+export const randomThumb = () => (thumbs.length ? pick(thumbs) : null);
+
 /** Returns an externalAdReply object, or null when there is no picture. */
 export const randomCard = () => {
     if (!thumbs.length) return null;
