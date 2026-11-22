@@ -1,5 +1,6 @@
 import config from '../../config/config.js';
 import { getSetting } from '../settings/settingsStore.js';
+import { randomCard } from './thumbnailCard.js';
 
 /**
  * Makes every outgoing bot message look "Forwarded from channel": WhatsApp then shows
@@ -22,18 +23,23 @@ export const decorate = (jid, content) => {
     if (!config.channel.jid || !content || typeof content !== 'object') return content;
     if (String(jid).endsWith('@newsletter') || String(jid) === 'status@broadcast') return content;
     if (SKIP_KEYS.some((k) => k in content) || !CONTENT_KEYS.some((k) => k in content)) return content;
-    try {
-        if (!getSetting('channelForward')) return content;
-    } catch {
-        /* settings not loaded yet → default on */
-    }
+    const setting = (key) => {
+        try {
+            return getSetting(key);
+        } catch {
+            return true; // settings not loaded yet → default on
+        }
+    };
+    const forward = setting('channelForward');
+    // Preview card only on text messages (media already has its own preview).
+    const card = setting('thumbnailCard') && 'text' in content && !content.contextInfo?.externalAdReply ? randomCard() : null;
+    if (!forward && !card) return content;
     return {
         ...content,
         contextInfo: {
             ...(content.contextInfo || {}),
-            isForwarded: true,
-            forwardingScore: 1,
-            forwardedNewsletterMessageInfo: channelInfo()
+            ...(forward ? { isForwarded: true, forwardingScore: 1, forwardedNewsletterMessageInfo: channelInfo() } : {}),
+            ...(card ? { externalAdReply: card } : {})
         }
     };
 };

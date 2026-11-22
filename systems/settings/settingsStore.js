@@ -15,6 +15,7 @@ export const SCHEMA = Object.freeze({
     autoRead: { type: 'bool', default: false, description: 'Mark incoming messages as read' },
     typing: { type: 'bool', default: true, description: 'Show "typing..." while a command runs' },
     channelForward: { type: 'bool', default: true, description: 'Show bot messages as forwarded from the bot channel' },
+    thumbnailCard: { type: 'bool', default: true, description: 'Show a random picture card above bot text messages' },
     cooldown: { type: 'int', min: 0, max: 300, default: 3, description: 'Default seconds between uses of the same command' },
     antiSpam: { type: 'bool', default: true, description: 'Mute users who flood commands' },
     spamLimit: { type: 'int', min: 2, max: 50, default: 6, description: 'Commands allowed per 10 seconds before muting' },
