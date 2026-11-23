@@ -1,49 +1,64 @@
 import { readFile } from 'node:fs/promises';
-import { generateWAMessageFromContent, jidNormalizedUser, prepareWAMessageMedia } from 'baileys';
-import { getOwners } from '../../systems/owners/ownerStore.js';
+import { generateWAMessageFromContent, prepareWAMessageMedia } from 'baileys';
+import { child } from '../../core/logger.js';
 import { stickerAudioReady } from '../../systems/security/stickerAudioProtocol.js';
 
-const PRIVATE = /^\d+@(s\.whatsapp\.net|lid)$/;
-const normalize = (value) => jidNormalizedUser(String(value || ''));
-let attempted = false;
+const log = child('sound-sticker-test');
+const lastByChat = new Map();
+let active = false;
+const COOLDOWN_MS = 60000;
 
-export function allowedDiagnosticChat(sock, message, main) {
-    const chat = normalize(message.chat);
-    if (message.isGroup || !PRIVATE.test(chat) || message.chat !== message.raw?.key?.remoteJid) return false;
-    if (message.fromMe) {
-        return [sock.user?.id, sock.user?.lid].filter(Boolean).map(normalize).includes(chat);
-    }
-    if (normalize(message.sender) !== chat) return false;
-    const number = String(message.senderNumber || '');
-    const lid = String(message.senderLid || '');
-    return Boolean((main.number && main.number === number) || (main.lid && main.lid === lid));
+export function diagnosticDecision(message, args, ready, busy, last, now) {
+    if (!/^(?:\d+@(s\.whatsapp\.net|lid)|\d+(?:-\d+)?@g\.us)$/.test(String(message.chat || ''))) return 'unsupported_chat';
+    if (args.length) return 'unexpected_arguments';
+    if (!ready) return 'codec_not_ready';
+    if (busy) return 'busy';
+    if (last !== undefined && now - last < COOLDOWN_MS) return 'cooldown';
+    return 'ready';
 }
 
 export default {
     name: 'soundstickertest',
     category: 'sticker',
-    description: 'Private main-owner diagnostic: blue sticker with a one-second tone.',
+    description: 'Sound sticker diagnostic: blue square with a one-second tone.',
     usage: '',
-    permission: 'creator',
-    scope: 'private',
-    hidden: true,
+    permission: 'public',
     cooldown: 60,
     async execute(sock, message, args) {
-        // Do not rely on configurable rank overrides, and never reply in an
-        // outgoing chat with another person. Linked-account self-chat is OK.
-        if (!allowedDiagnosticChat(sock, message, getOwners().owner)) return;
-        if (args.length || !stickerAudioReady() || attempted) return;
-        attempted = true; // one attempt per process; no automatic re-send
-        const options = { upload: sock.waUploadToServer, mediaUploadTimeoutMs: 20000 };
-        const sticker = await prepareWAMessageMedia({
-            sticker: await readFile(new URL('./.sound-test.webp', import.meta.url)), width: 512, height: 512
-        }, options);
-        const audio = await prepareWAMessageMedia({
-            audio: await readFile(new URL('./.sound-test.ogg', import.meta.url)),
-            mimetype: 'audio/ogg; codecs=opus', seconds: 1, ptt: true, waveform: Buffer.alloc(64)
-        }, options);
-        sticker.stickerMessage.audioMessage = audio.audioMessage;
-        const built = generateWAMessageFromContent(message.chat, sticker, { userJid: sock.user.id });
-        await sock.relayMessage(message.chat, built.message, { messageId: built.key.id });
+        const now = Date.now();
+        const decision = diagnosticDecision(message, args, stickerAudioReady(), active, lastByChat.get(message.chat), now);
+        log.info({ decision }, 'Diagnostic decision.'); // no IDs, keys or payloads
+        if (decision !== 'ready') {
+            if (decision === 'unsupported_chat') return;
+            const text = {
+                unexpected_arguments: 'Use .soundstickertest without arguments. No sticker was sent.',
+                codec_not_ready: 'The sound-sticker codec is not ready. No sticker was sent. Do not repeat the command.',
+                busy: 'A sound-sticker test is already running. No sticker was sent for this request.',
+                cooldown: 'Please wait 60 seconds between sound-sticker tests in this chat. No sticker was sent.'
+            }[decision];
+            await message.reply(text);
+            return;
+        }
+        active = true;
+        lastByChat.set(message.chat, now);
+        if (lastByChat.size > 500) lastByChat.delete(lastByChat.keys().next().value);
+        try {
+            log.info({ stage: 'prepare' }, 'Diagnostic stage.');
+            const options = { upload: sock.waUploadToServer, mediaUploadTimeoutMs: 20000 };
+            const sticker = await prepareWAMessageMedia({
+                sticker: await readFile(new URL('./.sound-test.webp', import.meta.url)), width: 512, height: 512
+            }, options);
+            const audio = await prepareWAMessageMedia({
+                audio: await readFile(new URL('./.sound-test.ogg', import.meta.url)),
+                mimetype: 'audio/ogg; codecs=opus', seconds: 1, ptt: true, waveform: Buffer.alloc(64)
+            }, options);
+            sticker.stickerMessage.audioMessage = audio.audioMessage;
+            const built = generateWAMessageFromContent(message.chat, sticker, { userJid: sock.user.id });
+            log.info({ stage: 'relay' }, 'Diagnostic stage.');
+            await sock.relayMessage(message.chat, built.message, { messageId: built.key.id });
+            log.info({ stage: 'relayed' }, 'Diagnostic stage.');
+        } finally {
+            active = false; // no automatic media retry after success or failure
+        }
     }
 };

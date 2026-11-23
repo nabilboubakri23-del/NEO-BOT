@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { proto } from 'baileys';
+import { child } from '../../core/logger.js';
 
 const require = createRequire(import.meta.resolve('baileys'));
 const { Reader } = require('protobufjs/minimal');
@@ -55,4 +56,4 @@ export function installStickerAudioProtocol() {
     return true;
 }
 export const stickerAudioReady = () => ready;
-installStickerAudioProtocol();
+child('sound-sticker-codec').info({ ready: installStickerAudioProtocol() }, 'Sound sticker codec initialized.');
