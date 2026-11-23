@@ -30,7 +30,7 @@ test('download modules are valid command definitions', () => {
     for (const mod of modules) {
         assert.equal(mod.permission, 'public', mod.name);
         assert.equal(mod.category, 'download', mod.name);
-        assert.ok(mod.cooldown >= 20, mod.name);
+        assert.ok(mod.cooldown >= (mod.name === 'spotify' ? 2 : 20), mod.name); // Spotify has separate 15s search / 30s acquisition limits.
     }
 });
 

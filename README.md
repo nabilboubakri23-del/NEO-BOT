@@ -88,7 +88,7 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 | `.yt <link>` · `.ytmp3 <link>` (youtube, يوتيوب) | 👤 everyone | YouTube public video (up to 720p, often 360p without merging); enabled only after server verification. Audio MP3 still needs the optional backend. |
 | `.play <name>` (شغل) | 👤 everyone | Search YouTube by name, download the first result's audio. Needs the backend. |
 | `.instagram <link>` (insta, انستا) · `.facebook <link>` (fb, فيسبوك) | 👤 everyone | Public Instagram / Facebook videos via a pinned local extractor, enabled separately after server verification. |
-| `.spotify <track link>` (سبوتيفاي) | 👤 everyone | Track as MP3 via a free third-party converter (not an official Spotify download); falls back to the download backend. |
+| `.spotify [song name or track link]` (سبوتيفاي) | 👤 everyone | Opens an Arabic button menu; searches by song name and artist, shows up to five swipeable cover cards, and downloads only the selected track. Track links still work directly. Free third-party MP3 converter, not an official Spotify download. |
 
 | **Games & levels** | | |
 | `.xo [bot\|end]` (ttt) | 👤 everyone | Tic-tac-toe vs a friend or the bot (plugin `tictactoe`). |
@@ -431,3 +431,9 @@ and checked-IP restrictions; extraction has a hard timeout, output limits and
 single-worker concurrency. Final media fetches keep the streamed size and type
 checks. YouTube MP3 and search-to-audio still require the optional backend; this
 change does not install ffmpeg or relabel M4A as MP3.
+
+### Spotify search and cards
+
+Send `.spotify` for the name/link/cancel menu, `.spotify song name artist` to search, or `.spotify https://open.spotify.com/track/...` for a track link. Search results show the title, artist, album, duration and available cover art in native WhatsApp carousel cards. Each card has Download, Open in Spotify and Back/Cancel buttons. A client or upload failure uses one-result buttons with Next instead, with an explicit notice and text-command fallback.
+
+Selections expire after five minutes and belong to the requesting sender in that chat. New menus invalidate old choices. Search and download actions have separate limits; only two Spotify operations run at once. `.spotify cancel` prevents a pending result or audio send when possible; a WhatsApp send already started cannot be retracted. No free-text conversation is intercepted, follow-up name/link input uses the `.spotify` command. Search metadata and MP3 conversion use the existing third-party Spotimate service, which can fail or change; search results and converted audio are not guaranteed exact editions. Existing HTTPS/domain/DNS, response-size and file-type guards still apply. Covers are fetched only from `i.scdn.co`, capped at 1 MiB each. No Spotify account, new dependency or paid service is used.

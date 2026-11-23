@@ -548,6 +548,8 @@ const requestRaw = (url, { method = 'GET', headers = {}, body, maxBytes = MAX_PA
             res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, text: Buffer.concat(chunks).toString('utf8') }));
             res.on('error', reject);
         });
+        const deadline=setTimeout(()=>req.destroy(new Error('Request timed out')),30_000);
+        req.on('close',()=>clearTimeout(deadline));
         req.on('timeout', () => req.destroy(new Error('Request timed out')));
         req.on('error', reject);
         if (body) req.write(body);
@@ -603,8 +605,8 @@ export const parseSpotmateDownload = (html) => {
  * Resolve a Spotify track to a downloadable MP3 URL through spotimate.app.
  * Free and keyless; it is a third-party converter, not an official Spotify download.
  */
-export const spotifyDownload = async (url) => {
-    const clean = String(url).trim().split('?')[0];
+export const spotifyDownload = async (url, { search = false } = {}) => {
+    const clean = search ? String(url).trim() : String(url).trim().split('?')[0];
     const base = 'https://spotimate.app';
     let cookies = '';
     try {
@@ -634,6 +636,7 @@ export const spotifyDownload = async (url) => {
         if (actionJson?.success === false) throw new Error('refused');
         const tracks = parseSpotmateForms(actionJson?.html || '');
         if (!tracks.length) throw new Error('no tracks');
+        if (search) return parseSpotifySearch(tracks);
         const track = tracks[0];
 
         const step2 = multipart({ data: track.data, base: track.base || clean, token: track.token });
@@ -650,4 +653,28 @@ export const spotifyDownload = async (url) => {
         if (error?.expose) throw error;
         throw new UserError('⚠️ Could not download that Spotify track right now. Try again later.');
     }
+};
+
+/** Search metadata only. Never automatically select the first fuzzy match. */
+export const parseSpotifySearch = tracks => {
+    const seen = new Set(); const results = [];
+    for (const track of tracks) {
+        try {
+            const data = JSON.parse(Buffer.from(track.data, 'base64').toString('utf8'));
+            if (!/^[A-Za-z0-9]{22}$/.test(data.tid || '') || seen.has(data.tid)) continue;
+            const title = String(data.name || '').replace(/[\u0000-\u001f]/g,' ').slice(0,100);
+            if (!title.trim()) continue;
+            seen.add(data.tid);
+            let cover='';
+            try {cover=assertUrl(data.cover,['i.scdn.co'],'cover');}catch{/* Card fallback handles absent artwork. */}
+            results.push({id:data.tid, title, cover, artist:String(data.artist || '').slice(0,100), album:String(data.album || '').slice(0,100), duration:String(data.duration || '').slice(0,12), url:`https://open.spotify.com/track/${data.tid}`});
+            if (results.length === 5) break;
+        } catch { /* Invalid provider row is not a selectable track. */ }
+    }
+    return results;
+};
+export const spotifySearch = async query => {
+    const text = String(query || '').trim();
+    if (text.length < 2 || text.length > 160 || /https?:|www\./i.test(text)) throw new UserError('Enter a song name and optionally the artist (2-160 characters), not a link.');
+    return spotifyDownload(text, {search:true});
 };
