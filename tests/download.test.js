@@ -223,10 +223,13 @@ test('sniffKind: recognizes common media magic bytes', () => {
 
 test('downloadFile: rejects non-https, oversized and private targets before sending', async () => {
     await assert.rejects(() => lib.downloadFile('ftp://example.com/file.bin'), /https|[Uu]nsafe/);
-    await assert.rejects(() => lib.downloadFile('http://169.254.169.254/latest/meta-data'), /unsafe download address|Could not reach/i);
-    await assert.rejects(() => lib.downloadFile('https://127.0.0.1/x'), /unsafe download address|Could not reach/i);
-    await assert.rejects(() => lib.downloadFile('https://[::1]/x'), /unsafe download address|Could not reach/i);
-    await assert.rejects(() => lib.downloadFile('https://192.168.1.1/x'), /unsafe download address|Could not reach/i);
+    await assert.rejects(() => lib.downloadFile('http://169.254.169.254/latest/meta-data'), /unsafe download address/i);
+    await assert.rejects(() => lib.downloadFile('https://127.0.0.1/x'), /unsafe download address/i);
+    await assert.rejects(() => lib.downloadFile('https://[::1]/x'), /unsafe download address/i);
+    await assert.rejects(() => lib.downloadFile('https://192.168.1.1/x'), /unsafe download address/i);
+    for (const url of ['https://2130706433/x', 'https://0x7f000001/x', 'https://[::ffff:7f00:1]/x', 'https://user:pass@example.com/x', 'https://example.com:8443/x']) {
+        await assert.rejects(() => lib.downloadFile(url), /unsafe download address/i);
+    }
     // DNS resolution of a non-existent TLD fails the safe lookup
     await assert.rejects(() => lib.downloadFile('https://host.invalid/x'), /Could not reach/);
 });
@@ -252,4 +255,88 @@ test('parseSpotmateDownload: picks the mp3 link, skips covers, ads and foreign h
         <a href="https://dl.spotimate.app/v1?token=xyz">Download MP3</a>`;
     assert.equal(lib.parseSpotmateDownload(html), 'https://dl.spotimate.app/v1?token=xyz');
     assert.equal(lib.parseSpotmateDownload('<a href="https://i.scdn.co/x.jpg">cover</a>'), '');
+});
+
+test('downloadFile: unsafe initial targets never create a transport request', async (t) => {
+    const https = (await import('node:https')).default;
+    let calls = 0;
+    t.mock.method(https, 'request', () => {
+        calls++;
+        throw new Error('Unexpected transport access');
+    });
+    for (const url of [
+        'https://127.0.0.1/x', 'https://2130706433/x', 'https://0x7f000001/x',
+        'https://[::1]/x', 'https://[::ffff:7f00:1]/x',
+        'https://user:pass@example.com/x', 'https://example.com:8443/x',
+        'http://example.com/x'
+    ]) await assert.rejects(() => lib.downloadFile(url), /unsafe download address/i);
+    assert.equal(calls, 0);
+});
+
+test('downloadFile: unsafe redirect targets never create a second request', async (t) => {
+    const https = (await import('node:https')).default;
+    const { EventEmitter } = await import('node:events');
+    let calls = 0;
+    let target = '';
+    t.mock.method(https, 'request', (url, options, callback) => {
+        calls++;
+        const request = new EventEmitter();
+        request.end = () => queueMicrotask(() => callback({
+            statusCode: 302, headers: { location: target }, resume() {}
+        }));
+        request.destroy = () => {};
+        return request;
+    });
+    for (const url of [
+        'https://127.0.0.1/x', 'https://[::ffff:7f00:1]/x',
+        'https://u:p@example.com/x', 'https://example.com:8443/x', 'http://example.com/x'
+    ]) {
+        target = url;
+        const before = calls;
+        await assert.rejects(() => lib.downloadFile('https://public.example/x'), /unsafe download address/i);
+        assert.equal(calls - before, 1);
+    }
+});
+
+test('downloadFile: DNS blocks private answers without returning a usable address', async (t) => {
+    const https = (await import('node:https')).default;
+    const dns = (await import('node:dns/promises')).default;
+    const { EventEmitter } = await import('node:events');
+    let usableAddresses = 0;
+    t.mock.method(dns, 'lookup', async () => [{ address: '127.0.0.1', family: 4 }]);
+    t.mock.method(https, 'request', (url, options) => {
+        const request = new EventEmitter();
+        request.end = () => options.lookup('public.example', { all: true }, (error, addresses) => {
+            if (addresses) usableAddresses++;
+            if (error) request.emit('error', error);
+        });
+        return request;
+    });
+    await assert.rejects(() => lib.downloadFile('https://public.example/x'), /not allowed/i);
+    assert.equal(usableAddresses, 0);
+});
+
+test('downloadFile: declared and streamed caps plus type checks are enforced', async (t) => {
+    const https = (await import('node:https')).default;
+    const { EventEmitter } = await import('node:events');
+    const { Readable } = await import('node:stream');
+    let scenario = {};
+    t.mock.method(https, 'request', (url, options, callback) => {
+        const request = new EventEmitter();
+        request.end = () => queueMicrotask(() => {
+            const response = Readable.from(scenario.chunks || []);
+            response.statusCode = 200;
+            response.headers = scenario.headers || {};
+            callback(response);
+        });
+        return request;
+    });
+    scenario = { headers: { 'content-length': '100' }, chunks: [] };
+    await assert.rejects(() => lib.downloadFile('https://public.example/x', { maxBytes: 10 }), /too large/i);
+    scenario = { chunks: [Buffer.alloc(6), Buffer.alloc(6)] };
+    await assert.rejects(() => lib.downloadFile('https://public.example/x', { maxBytes: 10 }), /too large/i);
+    scenario = { chunks: [Buffer.from('<!doctype html>not a video')] };
+    await assert.rejects(() => lib.downloadFile('https://public.example/x'), /web page/i);
+    scenario = { chunks: [Buffer.from('ID3fake audio')] };
+    await assert.rejects(() => lib.downloadFile('https://public.example/x', { expect: ['video'] }), /expected type/i);
 });
