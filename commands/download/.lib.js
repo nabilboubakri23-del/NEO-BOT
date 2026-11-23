@@ -78,8 +78,38 @@ export const sanitizeFilename = (name, fallback = 'download') => {
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────
 
+const hostAllowed = (host, allowHosts) => {
+    const h = String(host || '').toLowerCase();
+    return allowHosts.some((allowed) => h === allowed || h.endsWith(`.${allowed}`));
+};
+
+/**
+ * Fetch with manual redirect handling: https is never downgraded, and when
+ * allowHosts is set every redirect target is re-checked against it, so a
+ * validated URL can never bounce the bot to an arbitrary host (SSRF guard).
+ */
+const fetchGuarded = async (url, { method = 'GET', headers = {}, body, signal, allowHosts, maxRedirects = 5 } = {}) => {
+    let current = url;
+    for (let redirects = 0; ; redirects++) {
+        const res = await fetch(current, { method, headers, body, signal, redirect: 'manual' });
+        const location = res.headers.get('location');
+        if (res.status >= 300 && res.status < 400 && location) {
+            res.body?.cancel().catch(() => {});
+            if (redirects >= maxRedirects) throw new UserError('⚠️ The service redirected too many times.');
+            const next = new URL(location, current);
+            if (next.protocol !== 'https:') throw new UserError('⚠️ The service redirected to an unsafe address.');
+            if (allowHosts && !hostAllowed(next.hostname, allowHosts)) {
+                throw new UserError('⚠️ The service redirected to an unexpected address.');
+            }
+            current = next.toString();
+            continue;
+        }
+        return res;
+    }
+};
+
 /** GET/POST text with timeout and a hard size cap. Errors become safe UserErrors. */
-export const fetchText = async (url, { method = 'GET', headers = {}, body, form, maxBytes = MAX_PAGE_BYTES, timeoutMs = FETCH_TIMEOUT_MS } = {}) => {
+export const fetchText = async (url, { method = 'GET', headers = {}, body, form, maxBytes = MAX_PAGE_BYTES, timeoutMs = FETCH_TIMEOUT_MS, allowHosts } = {}) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -89,7 +119,7 @@ export const fetchText = async (url, { method = 'GET', headers = {}, body, form,
             finalBody = new URLSearchParams(form).toString();
             finalHeaders['Content-Type'] = 'application/x-www-form-urlencoded';
         }
-        const res = await fetch(url, { method, headers: finalHeaders, body: finalBody, signal: controller.signal, redirect: 'follow' });
+        const res = await fetchGuarded(url, { method, headers: finalHeaders, body: finalBody, signal: controller.signal, allowHosts });
         if (!res.ok) throw new UserError(`⚠️ The service refused the request (${res.status}). Try again later.`);
         const reader = res.body?.getReader?.();
         if (!reader) return await res.text();
@@ -122,11 +152,11 @@ export const fetchJson = async (url, options = {}) => {
 };
 
 /** HEAD request to learn a remote file's size before handing it to WhatsApp. */
-export const remoteSize = async (url, timeoutMs = 10_000) => {
+export const remoteSize = async (url, { timeoutMs = 10_000, allowHosts } = {}) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const res = await fetch(url, { method: 'HEAD', headers: { 'User-Agent': UA }, signal: controller.signal, redirect: 'follow' });
+        const res = await fetchGuarded(url, { method: 'HEAD', headers: { 'User-Agent': UA }, signal: controller.signal, allowHosts });
         const size = Number(res.headers.get('content-length') || 0);
         return Number.isFinite(size) ? size : 0;
     } catch {
@@ -228,7 +258,8 @@ export const tiktokDownload = async (url) => {
     const html = await fetchText('https://ssstik.io/abc?url=dl', {
         method: 'POST',
         headers: { 'HX-Request': 'true', 'HX-Current-URL': 'https://ssstik.io/en' },
-        form: { id: url, locale: 'en', tt: crypto.randomBytes(8).toString('hex') }
+        form: { id: url, locale: 'en', tt: crypto.randomBytes(8).toString('hex') },
+        allowHosts: ['ssstik.io']
     });
     const parsed = parseSsstik(html);
     if (!parsed.videoUrl && !parsed.audioUrl) {
@@ -258,7 +289,7 @@ export const parseYtSearch = (html) => {
 
 /** First YouTube video id matching a text search (no API key). */
 export const youtubeSearch = async (query) => {
-    const html = await fetchText(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`);
+    const html = await fetchText(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`, { allowHosts: ['youtube.com'] });
     return parseYtSearch(html);
 };
 
@@ -270,7 +301,7 @@ export const parseSpotifyTrack = (text) => {
 
 /** Spotify oEmbed (official, no key) → { title, thumbnail }. */
 export const spotifyInfo = async (trackUrl) => {
-    const data = await fetchJson(`https://open.spotify.com/oembed?url=${encodeURIComponent(trackUrl)}`);
+    const data = await fetchJson(`https://open.spotify.com/oembed?url=${encodeURIComponent(trackUrl)}`, { allowHosts: ['spotify.com'] });
     return { title: String(data?.title || '').trim(), thumbnail: typeof data?.thumbnail_url === 'string' ? data.thumbnail_url : '' };
 };
 
@@ -291,8 +322,16 @@ export const pickApps = (data, limit = 5) =>
 
 /** Search apps by name on the Aptoide store (public API, no key). */
 export const appSearch = async (query) => {
-    const data = await fetchJson(`https://ws75.aptoide.com/api/7/apps/search?query=${encodeURIComponent(query)}&limit=5&mature=false`);
+    const data = await fetchJson(`https://ws75.aptoide.com/api/7/apps/search?query=${encodeURIComponent(query)}&limit=5&mature=false`, { allowHosts: ['aptoide.com'] });
     return pickApps(data);
+};
+
+/** Pick app number n (1-based) from a search list; only store-verified apps may be downloaded. */
+export const pickApp = (apps, n) => {
+    const app = apps[n - 1];
+    if (!app) throw new UserError('⚠️ No app with that number in the results.');
+    if (!app.trusted) throw new UserError('⚠️ That app is NOT verified by the store, so downloading it is blocked. Pick a ✅ verified result.');
+    return app;
 };
 
 // ── Sending ──────────────────────────────────────────────────────────────

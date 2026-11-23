@@ -1,12 +1,13 @@
 import { box, fields, formatBytes } from '../../utils/formatter.js';
 import { UsageError, UserError } from '../../utils/errors.js';
-import { appSearch, formatSize, MAX_FILE_BYTES, sanitizeFilename, sendFile } from './.lib.js';
+import { appSearch, formatSize, MAX_FILE_BYTES, pickApp, sanitizeFilename, sendFile } from './.lib.js';
 
 /**
  * Android apps by name, from the Aptoide store (public API, no key):
  *   .app <name>       top matches with version, size and trust badge
  *   .app <name> <n>   download match number n (1-5) as an APK document
- * Apps marked TRUSTED by Aptoide are badged; others are flagged, never hidden.
+ * Only apps the store marks TRUSTED can be downloaded; unverified apps are
+ * shown as blocked, never sent.
  */
 
 const LIST_LIMIT = 5;
@@ -38,17 +39,16 @@ export default {
         if (!apps.length) throw new UserError('⚠️ No app matched that name.');
 
         if (pick === 0) {
-            const lines = apps.map((a, i) => `${i + 1}. ${a.name} ${a.version} ${a.trusted ? '✅' : '⚠️'} (${formatSize(a.size) || 'size unknown'})`);
+            const lines = apps.map((a, i) => `${i + 1}. ${a.name} ${a.version} ${a.trusted ? '✅' : '🚫'} (${formatSize(a.size) || 'size unknown'})`);
             return message.reply(box('APP SEARCH', [
                 ...lines,
                 '',
                 `Download one: ${ctx.prefix}app ${query} <number>`,
-                '✅ verified by the store · ⚠️ unverified'
+                '✅ verified by the store · 🚫 unverified (blocked)'
             ]));
         }
 
-        const app = apps[pick - 1];
-        if (!app) throw new UserError('⚠️ No app with that number in the results.');
+        const app = pickApp(apps, pick); // throws for unknown numbers and unverified apps
         if (app.size > MAX_FILE_BYTES) throw new UserError(`⚠️ App too large (${formatBytes(app.size)}). Maximum is ${formatSize(MAX_FILE_BYTES)}.`);
 
         await message.react?.('⏳');
@@ -58,7 +58,7 @@ export default {
             mimetype: 'application/vnd.android.package-archive',
             fileName: `${sanitizeFilename(app.name)}-${app.version || 'latest'}.apk`,
             caption: box('APP DOWNLOAD', [
-                ...fields({ '📱 App': app.name, '🏷️ Version': app.version, '📦 Size': formatBytes(app.size), '🔰 Store check': app.trusted ? 'TRUSTED' : 'UNVERIFIED - install at your own risk' })
+                ...fields({ '📱 App': app.name, '🏷️ Version': app.version, '📦 Size': formatBytes(app.size), '🔰 Store check': 'TRUSTED' })
             ])
         });
     }

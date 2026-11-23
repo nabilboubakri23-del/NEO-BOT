@@ -142,6 +142,46 @@ test('cobaltDownload: honest error when the backend is not configured', async ()
     await assert.rejects(() => lib.cobaltDownload('https://youtu.be/x'), /not enabled yet/);
 });
 
+test('pickApp: only store-verified apps can be downloaded', () => {
+    const apps = [
+        { name: 'Good', trusted: true, url: 'https://x/g.apk' },
+        { name: 'Bad', trusted: false, url: 'https://x/b.apk' }
+    ];
+    assert.equal(lib.pickApp(apps, 1).name, 'Good');
+    assert.throws(() => lib.pickApp(apps, 2), /NOT verified/);
+    assert.throws(() => lib.pickApp(apps, 3), /No app with that number/);
+});
+
+test('fetchText: redirects are re-validated (no protocol downgrade, no host escape)', async () => {
+    const { createServer } = await import('node:http');
+    const toHttp = createServer((req, res) => {
+        res.writeHead(302, { location: 'http://127.0.0.1:1/escape' });
+        res.end();
+    });
+    const toOtherHost = createServer((req, res) => {
+        res.writeHead(302, { location: 'https://notallowed.example/x' });
+        res.end();
+    });
+    await new Promise((r) => toHttp.listen(0, '127.0.0.1', r));
+    await new Promise((r) => toOtherHost.listen(0, '127.0.0.1', r));
+    try {
+        // plain http is refused before any request is even considered
+        const portHttp = toHttp.address().port;
+        const portHost = toOtherHost.address().port;
+        await assert.rejects(
+            () => lib.fetchText(`http://127.0.0.1:${portHttp}/`, { allowHosts: [] }),
+            /unsafe address|Could not reach|refused/ // redirect target http is rejected as unsafe
+        );
+        await assert.rejects(
+            () => lib.fetchText(`http://127.0.0.1:${portHost}/`, { allowHosts: ['allowed.example'] }),
+            /unsafe address|unexpected address|Could not reach|refused/
+        );
+    } finally {
+        toHttp.close();
+        toOtherHost.close();
+    }
+});
+
 test('sanitizeFilename: strips path and control characters', () => {
     assert.equal(lib.sanitizeFilename('a/b\\c:d*e?"f<>g'), 'a b c d e f g');
     assert.equal(lib.sanitizeFilename(''), 'download');

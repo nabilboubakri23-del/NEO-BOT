@@ -84,7 +84,7 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 | **Downloads** | | |
 | `.tiktok <link>` (tt, تيكتوك) | 👤 everyone | TikTok video without watermark; works out of the box. |
 | `.mediafire <link>` (mf, ميديافاير) | 👤 everyone | File from a public MediaFire link. |
-| `.app <name> [n]` (apk, تطبيق) | 👤 everyone | Search Android apps by name (Aptoide store); `[n]` downloads match number n. |
+| `.app <name> [n]` (apk, تطبيق) | 👤 everyone | Search Android apps by name (Aptoide store); `[n]` downloads match number n. Only store-verified (TRUSTED) apps can be downloaded. |
 | `.yt <link>` · `.ytmp3 <link>` (youtube, يوتيوب) | 👤 everyone | YouTube video (720p) / audio MP3. Needs the download backend. |
 | `.play <name>` (شغل) | 👤 everyone | Search YouTube by name, download the first result's audio. Needs the backend. |
 | `.instagram <link>` (insta, انستا) · `.facebook <link>` (fb, فيسبوك) | 👤 everyone | Public Instagram / Facebook videos. Need the backend. |
@@ -378,6 +378,8 @@ Commands that fetch media from YouTube, Instagram, Facebook and the Spotify audi
 match use a [cobalt-compatible](https://github.com/imputnet/cobalt) download
 backend: set `DOWNLOAD_API_BASE` on the server (plus `DOWNLOAD_API_KEY` when the
 instance requires a key). TikTok, MediaFire and `.app` work without any backend.
+Every user URL is checked against a per-platform allowlist, redirects are
+re-validated (https only, same allowlist) and page reads are size-capped.
 Only public content is supported; the bot never bypasses DRM, logins or private
 posts, and TikTok downloads prefer the no-watermark version when available.
 

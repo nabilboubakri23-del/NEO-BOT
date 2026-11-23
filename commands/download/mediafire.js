@@ -25,11 +25,11 @@ export default {
         const url = assertUrl(args[0], MF_HOSTS, 'MediaFire link');
         await message.react?.('⏳');
 
-        const html = await fetchText(url);
+        const html = await fetchText(url, { allowHosts: ['mediafire.com'] });
         const file = parseMediafire(html);
         if (!file) throw new UserError('⚠️ No file found at that link. It may be removed, private, or a folder.');
 
-        const size = await remoteSize(file.url);
+        const size = await remoteSize(file.url, { allowHosts: ['mediafire.com'] });
         if (size > MAX_FILE_BYTES) throw new UserError(`⚠️ File too large (${formatSize(size)}). Maximum is ${formatSize(MAX_FILE_BYTES)}.`);
 
         await sendFile(sock, message, {
