@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
 import https from 'node:https';
+import { isIP } from 'node:net';
 import { UsageError, UserError } from '../../utils/errors.js';
 
 /**
@@ -94,7 +95,11 @@ export const isPrivateIp = (ip) => {
     let v = String(ip || '').toLowerCase();
     if (v.startsWith('::ffff:')) v = v.slice(7);
     if (v.includes('.')) return PRIVATE_V4.some((re) => re.test(v));
-    return v === '::1' || v === '::' || v.startsWith('fc') || v.startsWith('fd') || /^fe[89ab]/.test(v);
+    // Only global-unicast IPv6 is eligible. Reject mapped/transition and special-use ranges.
+    if (isIP(v) !== 6) return true;
+    const first = parseInt(v.split(':')[0], 16);
+    return !(first >= 0x2000 && first <= 0x3fff) ||
+        /^2001:(?:0*:|0*[01][0-9a-f]{0,2}:|0*db8:)/i.test(v) || /^2002:/i.test(v);
 };
 
 /**
@@ -153,7 +158,11 @@ export const downloadFile = async (url, { allowHosts, maxBytes = MAX_MEDIA_BYTES
         } catch {
             throw new UserError('⚠️ Unsafe download address.');
         }
-        if (parsed.protocol !== 'https:') throw new UserError('⚠️ Unsafe download address.');
+        // Literal IPs bypass Node's lookup callback, so refuse them before creating a request.
+        const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
+        if (parsed.protocol !== 'https:' || parsed.username || parsed.password ||
+            (parsed.port && parsed.port !== '443') || isIP(hostname) ||
+            hostname.toLowerCase() === 'localhost') throw new UserError('⚠️ Unsafe download address.');
         if (allowHosts && !hostAllowed(parsed.hostname, allowHosts)) throw new UserError('⚠️ Unexpected download address.');
 
         let res;
@@ -460,9 +469,12 @@ export const appVerify = async (packageName) => {
     const data = await fetchJson(`https://ws75.aptoide.com/api/7/app/get?package_name=${encodeURIComponent(packageName)}&mature=false`, { allowHosts: ['aptoide.com'] });
     const node = data?.nodes?.meta?.data || data?.datalist?.list?.[0] || {};
     const file = node?.file || {};
+    if (!packageName || node?.package !== packageName) {
+        throw new UserError('⚠️ The store returned a different app package. Download blocked.');
+    }
     return {
         name: String(node?.name || '').trim(),
-        packageName: String(node?.package || packageName).trim(),
+        packageName: String(node?.package || '').trim(),
         version: String(file?.vername || '').trim(),
         size: Number(file?.filesize || node?.size || 0),
         url: typeof file?.path === 'string' ? file.path : '',
