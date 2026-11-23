@@ -4,7 +4,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import config from '../config/config.js';
 import { child } from './logger.js';
-import { parseCommand, suggest } from './commandParser.js';
+import { parseCommand } from './commandParser.js';
+import { closestCommand, sendPrefixHelp, sendSuggestion } from '../systems/assist/commandAssist.js';
 import { box, usage } from '../utils/formatter.js';
 import { describeError, UsageError } from '../utils/errors.js';
 import { isOwner } from '../systems/owners/ownerStore.js';
@@ -200,12 +201,13 @@ class CommandHandler {
     // ── Entry points ─────────────────────────────────────────────────────
 
     async handleCommand(sock, message) {
+        const access = createAccess(sock, message);
+        if (message.text.trim() === this.prefix) return this.#bare(sock, message, access);
         const parsed = parseCommand(message.text, this.prefix);
         if (!parsed?.name) return;
         const command = this.get(parsed.name);
-        const access = createAccess(sock, message);
 
-        if (!command) return this.#unknown(message, parsed.name, access);
+        if (!command) return this.#unknown(sock, message, parsed, access);
 
         const ctx = { ...parsed, prefix: this.prefix, command, usedName: parsed.name, access, source: 'text', api: command.plugin ? pluginManager.api(command.plugin) : null };
         return this.#run(sock, message, command, ctx, () => {
@@ -240,13 +242,23 @@ class CommandHandler {
 
     // ── Pipeline ─────────────────────────────────────────────────────────
 
-    async #unknown(message, name, access) {
-        if (!getSetting('suggest') || message.fromMe) return;
+    /** A lone prefix: explain how commands work (setting "suggest"). */
+    async #bare(sock, message, access) {
+        if (!getSetting('suggest') || !checkPolicy(message, access).ok) return;
+        const names = new Set(this.visible(access).map((c) => c.name));
+        const examples = ['menu', 'help', 'ping', 'settings'].filter((n) => names.has(n)).slice(0, 3);
+        await sendPrefixHelp(sock, message, examples).catch((e) => log.debug(`prefix help failed: ${describeError(e)}`));
+    }
+
+    /** Unknown command: suggest only a very close match (other bots may share the prefix). */
+    async #unknown(sock, message, parsed, access) {
+        if (!getSetting('suggest')) return;
         if (!checkPolicy(message, access).ok) return;
-        const names = this.visible(access).flatMap((c) => [c.name, ...(c.aliases || [])]);
-        const guess = suggest(name, names);
-        // Only answer when there is a close match: other bots may share the prefix.
-        if (guess) await message.reply(box(config.bot.name, [`Unknown command: ${this.prefix}${name}`, `Did you mean ${this.prefix}${guess}?`])).catch(() => {});
+        const names = this.visible(access).flatMap((c) => [c.name, ...(c.aliases || [])].map((name) => ({ name, command: c.name, description: c.description || '' })));
+        const match = closestCommand(parsed.name, names);
+        if (!match) return;
+        const argsText = (parsed.argsText || '').trim();
+        await sendSuggestion(sock, message, parsed.name, match, argsText).catch((e) => log.debug(`suggestion failed: ${describeError(e)}`));
     }
 
     async #run(sock, message, command, ctx, executor) {

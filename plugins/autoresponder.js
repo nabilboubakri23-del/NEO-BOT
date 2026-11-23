@@ -11,6 +11,7 @@ import {
     reactMode
 } from '../systems/automation/responders.js';
 import { box } from '../utils/formatter.js';
+import { sendListMenu } from '../systems/menus/interactiveMenu.js';
 import { UsageError, UserError } from '../utils/errors.js';
 
 /**
@@ -110,8 +111,9 @@ async function reactCommand(sock, message, args, ctx) {
     const save = () => ctx.api.store.touch(DOC);
     const sub = String(args[0] || 'status').toLowerCase();
     const rest = (ctx.argsText || '').replace(/^\s*\S+\s*/, '');
-    const reply = (lines) => message.reply(box(title, lines));
+    const reply = (lines) => (ctx.respond ? ctx.respond(lines) : message.reply(box(title, lines)));
 
+    if (sub === 'status' || sub === 'menu' || sub === 'help') return reactPanel(sock, message, ctx, store);
     if (['on', 'all', 'words', 'owner', 'off'].includes(sub)) {
         const mode = sub === 'on' ? 'all' : sub;
         if (mode === 'owner') requireOwner(ctx, 'use owner mode');
@@ -148,16 +150,7 @@ async function reactCommand(sock, message, args, ctx) {
         save();
         return reply(lines);
     }
-    const mode = reactModeFor(store, message.chat);
-    const own = section.chats[message.chat];
-    return reply([
-        `Here: ${mode ? MODE_LABEL[mode] : 'OFF'}${own === undefined && mode ? ' (global)' : ''}`,
-        `Global: ${section.global ? MODE_LABEL[section.global] : 'OFF'}`,
-        `Triggers: ${Object.keys(section.rules).length} · Pool: ${(section.emojis.length ? section.emojis : DEFAULT_EMOJIS).join(' ')}`,
-        '',
-        `${P}autoreact on|words|owner|off`,
-        `${P}autoreact global <mode|off> · emojis · add · del · list`
-    ]);
+    throw new UsageError(`${P}autoreact  (opens the panel)`);
 }
 
 async function replyCommand(sock, message, args, ctx) {
@@ -167,8 +160,9 @@ async function replyCommand(sock, message, args, ctx) {
     const save = () => ctx.api.store.touch(DOC);
     const sub = String(args[0] || 'status').toLowerCase();
     const rest = (ctx.argsText || '').replace(/^\s*\S+\s*/, '');
-    const reply = (lines) => message.reply(box(title, lines));
+    const reply = (lines) => (ctx.respond ? ctx.respond(lines) : message.reply(box(title, lines)));
     const count = Object.keys(section.rules).length;
+    if (sub === 'status' || sub === 'menu' || sub === 'help') return replyPanel(sock, message, ctx, store);
     const noRules = ['⚠️ No triggers yet, so nothing will happen.', `Owner: ${P}autoreply add hi | Hello {name}!`];
 
     if (sub === 'on' || sub === 'off') {
@@ -191,25 +185,146 @@ async function replyCommand(sock, message, args, ctx) {
         save();
         return reply(lines);
     }
-    return reply([
-        `Here: ${replyOnFor(store, message.chat) ? 'ON' : 'OFF'} · Global: ${section.global ? 'ON' : 'OFF'}`,
-        `Triggers: ${count}`,
-        '',
-        `${P}autoreply on|off · global on|off`,
-        `${P}autoreply add <trigger> | <reply> [| reply]`,
-        '"*word" = anywhere in the message · {name} {number} {time} {date}',
-        `${P}autoreply del <trigger> · list`
-    ]);
+    throw new UsageError(`${P}autoreply  (opens the panel)`);
 }
+
+// ── Button panels ─────────────────────────────────────────────────────────
+
+const row = (id, title, description = '') => ({ id, title: title.slice(0, 24), description: description.slice(0, 72) });
+const mark = (on) => (on ? '● ' : '');
+
+async function reactPanel(sock, message, ctx, store, notice = []) {
+    const section = store.react;
+    const mode = reactModeFor(store, message.chat);
+    const own = section.chats[message.chat];
+    const isOwner = ctx.access.isOwner;
+    const canSwitch = await canSwitchChat(message, ctx);
+    const body = box('AUTO-REACT', [
+        ...(notice.length ? [...notice, ''] : []),
+        `Here: ${mode ? MODE_LABEL[mode] : 'OFF'}${own === undefined && mode ? ' (global)' : ''}`,
+        `All chats: ${section.global ? MODE_LABEL[section.global] : 'OFF'}`,
+        `Emojis: ${pool(store).join(' ')}`,
+        `Trigger words: ${Object.keys(section.rules).length}`,
+        '',
+        '🌐 All: reacts to every message',
+        '🔤 Words: only to your trigger words',
+        '👑 Owner: only to owners and above',
+        '',
+        'Owners can also type:',
+        `${P}autoreact add hello | 👋 🔥`,
+        `${P}autoreact emojis 😂 🔥 ❤️`,
+        `${P}autoreact del hello`
+    ]);
+    const sections = [];
+    if (canSwitch) {
+        const rows = [
+            row('autoreact:set:all', `${mark(mode === 'all' && own !== undefined)}🌐 All messages`, 'React to every message in this chat'),
+            row('autoreact:set:words', `${mark(mode === 'words' && own !== undefined)}🔤 Trigger words`, 'React only to the words you added'),
+            ...(isOwner ? [row('autoreact:set:owner', `${mark(mode === 'owner' && own !== undefined)}👑 Owners only`, 'React only to owners and above')] : []),
+            row('autoreact:set:off', `${mark(own === 'off')}⛔ Off here`, 'No reactions in this chat')
+        ];
+        sections.push({ title: 'THIS CHAT', rows });
+    }
+    if (isOwner) {
+        const g = section.global;
+        sections.push({
+            title: 'ALL CHATS (OWNER)',
+            rows: [
+                row('autoreact:global:all', `${mark(g === 'all')}🌍 All messages`, 'Default for every chat'),
+                row('autoreact:global:owner', `${mark(g === 'owner')}🌍 Owners only`, 'React to owners in every chat'),
+                row('autoreact:global:off', `${mark(!g)}🌍 Off`, 'Chats keep their own setting')
+            ]
+        });
+    }
+    sections.push({
+        title: 'MORE',
+        rows: [
+            row('autoreact:list', '📋 Trigger words', 'Show the words and their emojis'),
+            ...(isOwner ? [row('autoreact:emojis:reset', '🎨 Default emojis', DEFAULT_EMOJIS.join(' '))] : [])
+        ]
+    });
+    return sendListMenu(
+        sock,
+        message.chat,
+        { title: config.bot.name, body, footer: config.bot.footer || '', buttonText: 'OPTIONS', sections },
+        { quoted: message.raw, fallbackText: `${body}\n\n${P}autoreact on | words | owner | off\n${P}autoreact global all | owner | off` }
+    );
+}
+
+async function replyPanel(sock, message, ctx, store, notice = []) {
+    const section = store.reply;
+    const here = replyOnFor(store, message.chat);
+    const own = section.chats[message.chat];
+    const isOwner = ctx.access.isOwner;
+    const canSwitch = await canSwitchChat(message, ctx);
+    const count = Object.keys(section.rules).length;
+    const body = box('AUTO-REPLY', [
+        ...(notice.length ? [...notice, ''] : []),
+        `Here: ${here ? 'ON' : 'OFF'}${own === undefined && here ? ' (global)' : ''} · All chats: ${section.global ? 'ON' : 'OFF'}`,
+        `Triggers: ${count}`,
+        ...(count ? [] : ['⚠️ No triggers yet, so nothing will be answered.']),
+        '',
+        'The bot answers a message that matches a trigger.',
+        'hi → only the exact message "hi"',
+        '*price → "price" anywhere in the message',
+        'Several replies with | : one is picked at random',
+        'In replies: {name} {number} {time} {date}',
+        '',
+        'Owners type:',
+        `${P}autoreply add hi | Hello {name}! | Hey!`,
+        `${P}autoreply add *price | Ask an admin 🙏`,
+        `${P}autoreply del hi`
+    ]);
+    const sections = [];
+    if (canSwitch) {
+        sections.push({
+            title: 'THIS CHAT',
+            rows: [
+                row('autoreply:set:on', `${mark(own === true)}✅ On here`, 'Answer triggers in this chat'),
+                row('autoreply:set:off', `${mark(own === false)}⛔ Off here`, 'Never answer in this chat')
+            ]
+        });
+    }
+    if (isOwner) {
+        sections.push({
+            title: 'ALL CHATS (OWNER)',
+            rows: [
+                row('autoreply:global:on', `${mark(section.global)}🌍 On everywhere`, 'Default for every chat'),
+                row('autoreply:global:off', `${mark(!section.global)}🌍 Off everywhere`, 'Chats keep their own setting')
+            ]
+        });
+    }
+    sections.push({ title: 'MORE', rows: [row('autoreply:list', '📋 Triggers', 'Show every trigger and its replies')] });
+    return sendListMenu(
+        sock,
+        message.chat,
+        { title: config.bot.name, body, footer: config.bot.footer || '', buttonText: 'OPTIONS', sections },
+        { quoted: message.raw, fallbackText: `${body}\n\n${P}autoreply on | off\n${P}autoreply global on | off` }
+    );
+}
+
+/** A tap in a panel: run the action, then show the panel again with the result on top. */
+const onPanelSelect = (kind) => async (sock, message, parts, ctx) => {
+    const [action, value] = parts;
+    const args = action === 'set' ? [value] : action === 'list' ? ['list'] : [action, value].filter(Boolean);
+    const run = kind === 'react' ? reactCommand : replyCommand;
+    let result = [];
+    const inner = { ...ctx, argsText: args.join(' '), respond: (lines) => (result = lines) };
+    await run(sock, message, args, inner);
+    if (action === 'list') return message.reply(box(kind === 'react' ? 'AUTO-REACT' : 'AUTO-REPLY', result));
+    const store = await open(ctx.api);
+    return kind === 'react' ? reactPanel(sock, message, ctx, store, result) : replyPanel(sock, message, ctx, store, result);
+};
 
 const command = (kind, description, execute) => ({
     name: `auto${kind}`,
     category: 'automation',
     description,
-    usage: kind === 'react' ? 'on|words|owner|off|global|emojis|add|del|list' : 'on|off|global|add <trigger> | <reply>|del|list',
+    usage: kind === 'react' ? '[on|words|owner|off|global|emojis|add|del|list]' : '[on|off|global|add <trigger> | <reply>|del|list]',
     permission: 'public',
-    cooldown: 3,
-    execute
+    cooldown: 1, // panel taps come in quick succession
+    execute,
+    onSelect: onPanelSelect(kind)
 });
 
 const hasContent = (message) => Boolean(message.text || message.mediaType);
@@ -236,7 +351,7 @@ export const chooseReaction = (store, mode, message, { isOwnerSender }) => {
 
 export default {
     name: 'autoresponder',
-    version: '2.0.0',
+    version: '2.1.0',
     author: 'NEO BOT',
     description: 'Auto-replies and auto-reactions (every message, trigger words, or owners only), off by default.',
     commands: [

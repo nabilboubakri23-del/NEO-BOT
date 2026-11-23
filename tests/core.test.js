@@ -178,7 +178,7 @@ test('pipeline: help, unknown command suggestion, usage errors, owner gate', asy
     assert.doesNotMatch(lastText(sock), /\.dev/); // owner-only hidden
 
     await commandHandler.handleCommand(sock, msg(sock, '.pnig'));
-    assert.match(lastText(sock), /Did you mean \.ping/);
+    assert.match(JSON.stringify(sock.sent.at(-1)), /Did you mean \.ping/);
 
     await commandHandler.handleCommand(sock, msg(sock, '.antiban', { number: '212633333333' }));
     assert.match(lastText(sock), /Access denied/);
@@ -243,4 +243,28 @@ test('menu: category selection lists its commands with BACK', async () => {
 test('users: activity tracked', () => {
     const u = users.getUser({ number: '212622222222' });
     assert.ok(u && u.commands > 0);
+});
+
+test('assist: lone prefix explains commands; only very close typos get a suggestion', async () => {
+    const { closestCommand, editDistance, allowedEdits } = await import('../systems/assist/commandAssist.js');
+    assert.equal(editDistance('pnig', 'ping'), 1);
+    assert.equal(allowedEdits(2), 0);
+    const names = ['ping', 'pin', 'menu', 'help', 'settings', 'sticker'].map((n) => ({ name: n, command: n }));
+    assert.equal(closestCommand('pinj', names)?.name, 'ping');
+    assert.equal(closestCommand('menuu', names)?.name, 'menu');
+    assert.equal(closestCommand('setings', names)?.name, 'settings');
+    assert.equal(closestCommand('hello', names), null);
+    assert.equal(closestCommand('pi', names), null);
+    assert.equal(closestCommand('mneu', names)?.name, 'menu');
+    assert.equal(closestCommand('xyzw', names), null);
+
+    resetLimits();
+    const sock = fakeSock();
+    await commandHandler.handleCommand(sock, msg(sock, '.', { number: '212677777777' }));
+    assert.match(JSON.stringify(sock.sent.at(-1)), /Write a command name/);
+    const n = sock.sent.length;
+    await commandHandler.handleCommand(sock, msg(sock, '.wassup', { number: '212677777778' }));
+    assert.equal(sock.sent.length, n); // far from every command: silent
+    await commandHandler.handleCommand(sock, msg(sock, '.pinj', { number: '212677777778' }));
+    assert.match(JSON.stringify(sock.sent.at(-1)), /Did you mean \.ping/);
 });

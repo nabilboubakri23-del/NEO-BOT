@@ -227,3 +227,22 @@ test('autoreply: warns when no triggers, global default, placeholders', async ()
     assert.equal(sock.sent.length, n);
     await send(sock, '.autoreply global off', { number: OWNER });
 });
+
+test('autoreact/autoreply: bare command opens a button panel; a tap applies and re-shows it', async () => {
+    const sock = fakeSock({ admins: [ADMIN] });
+    await send(sock, '.autoreact', { number: OWNER });
+    const panel = JSON.stringify(sock.sent.at(-1));
+    assert.match(panel, /AUTO-REACT/);
+    assert.match(panel, /autoreact:set:owner/);
+    resetLimits();
+    const tap = msg(sock, '', { group: true, number: OWNER, selectionId: 'autoreact:set:owner' });
+    await commandHandler.handleSelection(sock, tap);
+    assert.match(JSON.stringify(sock.sent.at(-1)), /owners and above only/);
+    resetLimits();
+    await send(sock, '.autoreact', { number: MEMBER });
+    assert.doesNotMatch(JSON.stringify(sock.sent.at(-1)), /autoreact:set:/); // members cannot switch
+    await send(sock, '.autoreply', { number: ADMIN });
+    assert.match(JSON.stringify(sock.sent.at(-1)), /autoreply:set:on/);
+    resetLimits();
+    await commandHandler.handleSelection(sock, msg(sock, '', { group: true, number: OWNER, selectionId: 'autoreact:set:off' }));
+});
