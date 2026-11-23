@@ -229,7 +229,11 @@ export const handleUpsert = async (sock, { messages, type }) => {
             if (!message.fromMe && !(await events.barrier('message', { sock, message }))) continue;
 
             const isCommand = message.text.startsWith(config.bot.prefix);
-            if (message.fromMe && !message.selectionId && !isCommand) continue;
+            if (message.fromMe && !message.selectionId && !isCommand) {
+                // The linked account's own chat messages (e.g. auto-react in owner mode); never routed.
+                await events.emit('message:self', { sock, message });
+                continue;
+            }
 
             if (message.selectionId) {
                 await commandHandler.handleSelection(sock, message);

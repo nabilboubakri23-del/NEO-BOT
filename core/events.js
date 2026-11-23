@@ -12,6 +12,7 @@ const log = child('events');
  *
  * Known events (payload in parentheses):
  *   'message'            ({ sock, message })        every incoming message, before routing
+ *   'message:self'       ({ sock, message })        the linked account's own non-command message
  *   'command:before'     ({ sock, message, command, ctx })  a command is about to run (barrier)
  *   'command:after'      ({ sock, message, command, ctx, ok, ms })  a command finished
  *   'command:error'      ({ sock, message, command, error })  a command threw

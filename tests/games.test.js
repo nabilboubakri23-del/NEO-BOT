@@ -1,7 +1,7 @@
 // Games: tic-tac-toe rules and bot, quiz generators, sessions, and both game plugins end to end. Offline.
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { MemoryBackend, fakeSock, msg, allText, GROUP, MEMBER, ADMIN } from './helpers.js';
+import { MemoryBackend, fakeSock, msg, allText, GROUP, MEMBER, ADMIN, OWNER } from './helpers.js';
 
 const ttt = await import('../systems/games/tictactoe.js');
 const quiz = await import('../systems/games/quiz.js');
@@ -170,4 +170,60 @@ test('autoresponder plugin: off by default, owner adds a trigger, chat switched 
     const n = sock.sent.length;
     await send(sock, 'hello bot', { number: MEMBER }); // within 15 s → silent
     assert.equal(sock.sent.length, n);
+});
+
+test('autoresponder: contains triggers, placeholders, emoji parsing, modes', async () => {
+    const r = await import('../systems/automation/responders.js');
+    assert.equal(r.findReply({ '*price': ['Ask the admin'] }, 'what is the PRICE today'), 'Ask the admin');
+    assert.equal(r.findReply({ '*price': ['x'] }, 'prices'), null);
+    assert.equal(r.fillPlaceholders('Hi {name} ({number})', { name: 'Nabil', number: '212' }), 'Hi Nabil (212)');
+    assert.deepEqual(r.parseEmojis('😂 🔥, ❤️ abc 😂'), ['😂', '🔥', '❤️']);
+    assert.equal(r.reactMode(true), 'words');
+    assert.equal(r.reactMode('owner'), 'owner');
+    assert.equal(r.reactMode('bogus'), null);
+});
+
+test('autoreact: owner mode reacts only to owners; "on" reacts to everyone (rate-limited)', async () => {
+    const sock = fakeSock({ admins: [ADMIN] });
+    const reacts = [];
+    const sendR = async (text, opts) => {
+        resetLimits();
+        const m = msg(sock, text, { group: true, ...opts });
+        m.react = async (e) => reacts.push({ by: m.senderNumber, e });
+        return text.startsWith('.') ? commandHandler.handleCommand(sock, m) : events.barrier('message', { sock, message: m });
+    };
+    await sendR('.autoreact owner', { number: ADMIN });
+    assert.match(sock.sent.at(-1).content.text, /Only owners/);
+    await sendR('.autoreact owner', { number: OWNER });
+    assert.match(sock.sent.at(-1).content.text, /owners and above/);
+    await sendR('hello everyone', { number: MEMBER });
+    assert.equal(reacts.length, 0);
+    await sendR('hello everyone', { number: OWNER });
+    assert.equal(reacts.length, 1);
+    assert.equal(reacts[0].by, OWNER);
+
+    await sendR('.autoreact on', { number: ADMIN });
+    assert.match(sock.sent.at(-1).content.text, /every message/);
+    await sendR('nice', { number: '212633333333' });
+    assert.equal(reacts.length, 2);
+    await sendR('again', { number: '212633333333' }); // same sender within 20 s → no reaction
+    assert.equal(reacts.length, 2);
+
+    await sendR('.autoreact off', { number: ADMIN });
+    await sendR('hello', { number: OWNER });
+    assert.equal(reacts.length, 2);
+});
+
+test('autoreply: warns when no triggers, global default, placeholders', async () => {
+    const sock = fakeSock({ admins: [ADMIN] });
+    await send(sock, '.autoreply add *thanks | You are welcome {name}!', { number: OWNER });
+    await send(sock, '.autoreply global on', { number: OWNER });
+    assert.match(sock.sent.at(-1).content.text, /Global default: ON/);
+    await send(sock, 'ok thanks a lot', { number: MEMBER });
+    assert.equal(sock.sent.at(-1).content.text, 'You are welcome Tester!');
+    await send(sock, '.autoreply off', { number: ADMIN });
+    const n = sock.sent.length;
+    await send(sock, 'thanks again', { number: '212633333333' });
+    assert.equal(sock.sent.length, n);
+    await send(sock, '.autoreply global off', { number: OWNER });
 });
