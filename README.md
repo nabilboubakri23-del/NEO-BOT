@@ -81,6 +81,15 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 | `.sticker [pack \| author]` (s) | 👤 everyone | Image / GIF / short video → sticker (ffmpeg). |
 | `.take <pack> \| [author]` (wm) | 👤 everyone | Re-label a sticker (pure JS, no ffmpeg). |
 | `.toimage` · `.tomp3` · `.togif` | 👤 everyone | Sticker → image, video / voice → MP3, video → GIF. |
+| **Downloads** | | |
+| `.tiktok <link>` (tt, تيكتوك) | 👤 everyone | TikTok video without watermark; works out of the box. |
+| `.mediafire <link>` (mf, ميديافاير) | 👤 everyone | File from a public MediaFire link. |
+| `.app <name> [n]` (apk, تطبيق) | 👤 everyone | Search Android apps by name (Aptoide store); `[n]` downloads match number n. Only apps that passed the store's malware screening can be downloaded (screening is re-checked at download time; it is not publisher verification or a safety guarantee). |
+| `.yt <link>` · `.ytmp3 <link>` (youtube, يوتيوب) | 👤 everyone | YouTube video (720p) / audio MP3. Needs the download backend. |
+| `.play <name>` (شغل) | 👤 everyone | Search YouTube by name, download the first result's audio. Needs the backend. |
+| `.instagram <link>` (insta, انستا) · `.facebook <link>` (fb, فيسبوك) | 👤 everyone | Public Instagram / Facebook videos. Need the backend. |
+| `.spotify <track link>` (سبوتيفاي) | 👤 everyone | Track as MP3 via a free third-party converter (not an official Spotify download); falls back to the download backend. |
+
 | **Games & levels** | | |
 | `.xo [bot\|end]` (ttt) | 👤 everyone | Tic-tac-toe vs a friend or the bot (plugin `tictactoe`). |
 | `.quiz [flag\|math\|word\|hint\|stop]` (flag, math, scramble) | 👤 everyone | 5-round chat quizzes, offline questions (plugin `quiz`). |
@@ -362,6 +371,20 @@ Provider references:
 
 Tests use mocked provider responses and do not spend API quota. A live provider
 check and WhatsApp check are still needed after configuring the real host key.
+
+## Download backend (optional)
+
+Commands that fetch media from YouTube, Instagram and Facebook use a [cobalt-compatible](https://github.com/imputnet/cobalt) download
+backend: set `DOWNLOAD_API_BASE` on the server (plus `DOWNLOAD_API_KEY` when the
+instance requires a key). TikTok, MediaFire and `.app` work without any backend.
+Every user URL is checked against a per-platform allowlist, and redirects are
+re-validated (https only, same allowlist). Files are downloaded by the bot
+before they are sent: the download refuses addresses that resolve to private
+or loopback IPs (checked again on every redirect hop), caps the file size
+while streaming (64 MB for media, 100 MB for documents and APKs) and checks
+the file's magic bytes before delivery. Page reads are size-capped too.
+Only public content is supported; the bot never bypasses DRM, logins or private
+posts, and TikTok downloads prefer the no-watermark version when available.
 
 ## Connection stability and session cleanup
 
