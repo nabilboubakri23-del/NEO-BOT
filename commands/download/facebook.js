@@ -1,6 +1,6 @@
 import { box } from '../../utils/formatter.js';
 import { UserError } from '../../utils/errors.js';
-import { assertUrl, cobaltDownload, isCobaltConfigured, NOT_CONFIGURED, sendFile } from './.lib.js';
+import { assertUrl, cobaltDownload, deliverMedia, isCobaltConfigured, NOT_CONFIGURED } from './.lib.js';
 
 /**
  * Facebook downloads through the owner-configured cobalt-compatible backend:
@@ -25,11 +25,6 @@ export default {
         const url = assertUrl(args[0], FB_HOSTS, 'Facebook link');
         await message.react?.('⏳');
         const result = await cobaltDownload(url, { audio: false });
-        if (result.kind === 'picker') {
-            const first = result.items[0];
-            await sendFile(sock, message, { kind: first.type === 'video' ? 'video' : 'image', url: first.url, caption: box('FACEBOOK', ['✅ Done.']) });
-            return;
-        }
-        await sendFile(sock, message, { kind: 'video', url: result.url, caption: box('FACEBOOK', ['✅ Done.']) });
+        await deliverMedia(sock, message, result, { caption: box('FACEBOOK', ['✅ Done.']) });
     }
 };

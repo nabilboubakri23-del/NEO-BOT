@@ -1,6 +1,6 @@
 import { box, fields } from '../../utils/formatter.js';
 import { UserError } from '../../utils/errors.js';
-import { assertUrl, cobaltDownload, isCobaltConfigured, NOT_CONFIGURED, parseSpotifyTrack, sanitizeFilename, sendFile, spotifyInfo, youtubeSearch } from './.lib.js';
+import { assertUrl, cobaltDownload, deliverMedia, isCobaltConfigured, NOT_CONFIGURED, parseSpotifyTrack, sanitizeFilename, spotifyInfo, youtubeSearch } from './.lib.js';
 
 /**
  * Spotify tracks:
@@ -39,10 +39,7 @@ export default {
         const ids = await youtubeSearch(`${title} audio`);
         if (!ids.length) throw new UserError('⚠️ Could not find matching audio for that track.');
         const result = await cobaltDownload(`https://www.youtube.com/watch?v=${ids[0]}`, { audio: true });
-        if (result.kind === 'picker') {
-            const first = result.items[0];
-            return sendFile(sock, message, { kind: 'audio', url: first.url, fileName: `${sanitizeFilename(title)}.mp3` });
-        }
-        await sendFile(sock, message, { kind: 'audio', url: result.url, fileName: `${sanitizeFilename(title)}.mp3` });
+        result.fileName = sanitizeFilename(title);
+        await deliverMedia(sock, message, result, { audio: true });
     }
 };

@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import dns from 'node:dns/promises';
+import https from 'node:https';
 import { UsageError, UserError } from '../../utils/errors.js';
 
 /**
@@ -26,7 +28,10 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
 
 /** Largest remote file the bot will hand to WhatsApp (document uploads). */
-export const MAX_FILE_BYTES = 300 * 1024 * 1024;
+export const MAX_FILE_BYTES = 100 * 1024 * 1024;
+
+/** Largest video/audio the bot buffers for delivery (Render free has 512 MB RAM). */
+export const MAX_MEDIA_BYTES = 64 * 1024 * 1024;
 
 // ── Configuration ────────────────────────────────────────────────────────
 
@@ -74,6 +79,122 @@ export const sanitizeFilename = (name, fallback = 'download') => {
         .trim()
         .slice(0, 100);
     return clean || fallback;
+};
+
+// ── DNS and transport guards ─────────────────────────────────────────────
+
+const PRIVATE_V4 = [
+    /^0\./, /^10\./, /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, /^127\./,
+    /^169\.254\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.0\.0\./, /^192\.0\.2\./,
+    /^192\.168\./, /^198\.(18|19)\./, /^198\.51\.100\./, /^203\.0\.113\./, /^2(2[4-9]|[3-9]\d)\./
+];
+
+/** True for loopback, private, link-local, CGNAT, documentation and multicast addresses. */
+export const isPrivateIp = (ip) => {
+    let v = String(ip || '').toLowerCase();
+    if (v.startsWith('::ffff:')) v = v.slice(7);
+    if (v.includes('.')) return PRIVATE_V4.some((re) => re.test(v));
+    return v === '::1' || v === '::' || v.startsWith('fc') || v.startsWith('fd') || /^fe[89ab]/.test(v);
+};
+
+/**
+ * dns lookup callback for https.request that refuses any hostname resolving to
+ * a private address: the SSRF guard that allowlists alone cannot give (DNS).
+ */
+const safeLookup = async (hostname, options, callback) => {
+    try {
+        const all = await dns.lookup(hostname, { all: true, verbatim: true });
+        if (!all.length || all.some((a) => isPrivateIp(a.address))) return callback(new Error(`Blocked address for ${hostname}`));
+        // Node passes { all: true } to custom lookups and then expects an array.
+        callback(null, options?.all ? [all[0]] : all[0].address, options?.all ? undefined : all[0].family);
+    } catch (error) {
+        callback(error);
+    }
+};
+
+const httpsRequest = (url, { method = 'GET', headers = {}, body } = {}) =>
+    new Promise((resolve, reject) => {
+        const req = https.request(url, { method, headers: { 'User-Agent': UA, ...headers }, lookup: safeLookup, timeout: 30_000 }, resolve);
+        req.on('timeout', () => req.destroy(new Error('Request timed out')));
+        req.on('error', reject);
+        if (body) req.write(body);
+        req.end();
+    });
+
+/** File-type detection from magic bytes; 'htmlpage' means the service sent a web page. */
+export const sniffKind = (buffer) => {
+    const b = buffer;
+    if (b.length >= 12 && b.toString('ascii', 4, 8) === 'ftyp') return 'video';
+    if (b.length >= 3 && b.toString('ascii', 0, 3) === 'ID3') return 'audio';
+    if (b.length >= 2 && b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return 'audio';
+    if (b.length >= 4 && b.toString('ascii', 0, 4) === 'OggS') return 'audio';
+    if (b.length >= 2 && b[0] === 0xff && b[1] === 0xd8) return 'image';
+    if (b.length >= 4 && b[0] === 0x89 && b.toString('ascii', 1, 4) === 'PNG') return 'image';
+    if (b.length >= 3 && b.toString('ascii', 0, 3) === 'GIF') return 'image';
+    if (b.length >= 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') return 'image';
+    if (b.length >= 2 && b[0] === 0x50 && b[1] === 0x4b) return 'archive';
+    const head = b.toString('latin1', 0, 200).trimStart().toLowerCase();
+    if (head.startsWith('<!doctype') || head.startsWith('<html')) return 'htmlpage';
+    return 'unknown';
+};
+
+/**
+ * Download a provider file with every guard applied at acquisition time:
+ * https only, optional host allowlist on every redirect hop, DNS resolution
+ * through safeLookup (private addresses refused), a streamed size cap, and a
+ * magic-byte type check. Returns { buffer, size, contentType, kind }.
+ */
+export const downloadFile = async (url, { allowHosts, maxBytes = MAX_MEDIA_BYTES, expect = [], maxRedirects = 5 } = {}) => {
+    let current = String(url || '');
+    for (let redirects = 0; ; redirects++) {
+        let parsed;
+        try {
+            parsed = new URL(current);
+        } catch {
+            throw new UserError('⚠️ Unsafe download address.');
+        }
+        if (parsed.protocol !== 'https:') throw new UserError('⚠️ Unsafe download address.');
+        if (allowHosts && !hostAllowed(parsed.hostname, allowHosts)) throw new UserError('⚠️ Unexpected download address.');
+
+        let res;
+        try {
+            res = await httpsRequest(current);
+        } catch (error) {
+            if (/Blocked address/.test(error?.message || '')) throw new UserError('⚠️ That download address is not allowed.');
+            throw new UserError('⚠️ Could not reach the download server. Try again later.');
+        }
+        const location = res.headers.location;
+        if (res.statusCode >= 300 && res.statusCode < 400 && location) {
+            res.resume();
+            if (redirects >= maxRedirects) throw new UserError('⚠️ The service redirected too many times.');
+            current = new URL(location, current).toString();
+            continue;
+        }
+        if (res.statusCode !== 200) {
+            res.resume();
+            throw new UserError(`⚠️ The service refused the download (${res.statusCode}). Try again later.`);
+        }
+        const declared = Number(res.headers['content-length'] || 0);
+        if (declared > maxBytes) {
+            res.resume();
+            throw new UserError(`⚠️ File too large (${formatSize(declared)}). Maximum is ${formatSize(maxBytes)}.`);
+        }
+        const chunks = [];
+        let total = 0;
+        for await (const chunk of res) {
+            total += chunk.length;
+            if (total > maxBytes) {
+                res.destroy();
+                throw new UserError(`⚠️ File too large. Maximum is ${formatSize(maxBytes)}.`);
+            }
+            chunks.push(chunk);
+        }
+        const buffer = Buffer.concat(chunks);
+        const kind = sniffKind(buffer);
+        if (kind === 'htmlpage') throw new UserError('⚠️ The service answered with a web page instead of the file. Try again later.');
+        if (expect.length && !expect.includes(kind)) throw new UserError('⚠️ The downloaded file was not the expected type.');
+        return { buffer, size: total, contentType: String(res.headers['content-type'] || ''), kind };
+    }
 };
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────
@@ -326,27 +447,64 @@ export const appSearch = async (query) => {
     return pickApps(data);
 };
 
-/** Pick app number n (1-based) from a search list; only store-verified apps may be downloaded. */
+/** Pick app number n (1-based) from a search list; only store-screened apps may be downloaded. */
 export const pickApp = (apps, n) => {
     const app = apps[n - 1];
     if (!app) throw new UserError('⚠️ No app with that number in the results.');
-    if (!app.trusted) throw new UserError('⚠️ That app is NOT verified by the store, so downloading it is blocked. Pick a ✅ verified result.');
+    if (!app.trusted) throw new UserError('⚠️ That app did not pass the store malware screening, so downloading it is blocked. Pick a ✅ screened result.');
     return app;
+};
+
+/** Re-resolve an app at download time: fresh store state, current APK link and screening rank. */
+export const appVerify = async (packageName) => {
+    const data = await fetchJson(`https://ws75.aptoide.com/api/7/app/get?package_name=${encodeURIComponent(packageName)}&mature=false`, { allowHosts: ['aptoide.com'] });
+    const node = data?.nodes?.meta?.data || data?.datalist?.list?.[0] || {};
+    const file = node?.file || {};
+    return {
+        name: String(node?.name || '').trim(),
+        packageName: String(node?.package || packageName).trim(),
+        version: String(file?.vername || '').trim(),
+        size: Number(file?.filesize || node?.size || 0),
+        url: typeof file?.path === 'string' ? file.path : '',
+        // TRUSTED is Aptoide's malware screening badge - not publisher identity verification.
+        trusted: file?.malware?.rank === 'TRUSTED'
+    };
 };
 
 // ── Sending ──────────────────────────────────────────────────────────────
 
-/** Send a remote file to the chat. kind: 'video' | 'audio' | 'image' | 'document'. */
-export const sendFile = async (sock, message, { kind, url, caption = '', fileName = '', mimetype = '' }) => {
+/**
+ * Resolve a cobalt/picker result, download the media with full guards and send it.
+ * kind is taken from the picker item (photo→image) or the requested mode.
+ */
+export const deliverMedia = async (sock, message, result, { audio = false, caption = '' } = {}) => {
+    const item = result.kind === 'picker' ? result.items[0] : null;
+    const url = item ? item.url : result.url;
+    const kind = item?.type === 'photo' ? 'image' : audio ? 'audio' : 'video';
+    const file = await downloadFile(url, {
+        maxBytes: MAX_MEDIA_BYTES,
+        expect: kind === 'image' ? ['image'] : kind === 'audio' ? ['audio'] : ['video']
+    });
+    await sendFile(sock, message, {
+        kind,
+        buffer: file.buffer,
+        caption,
+        fileName: kind === 'audio' ? `${result.fileName || 'audio'}.mp3` : ''
+    });
+};
+
+/** Send a downloaded file buffer to the chat. kind: 'video' | 'audio' | 'image' | 'document'. */
+export const sendFile = async (sock, message, { kind, buffer, caption = '', fileName = '', mimetype = '' }) => {
+    if (!Buffer.isBuffer(buffer) || !buffer.length) throw new UserError('⚠️ The download was empty. Try again later.');
     let content;
     if (kind === 'audio') {
-        content = { audio: { url }, mimetype: mimetype || 'audio/mpeg', fileName: fileName || 'audio.mp3' };
+        content = { audio: buffer, mimetype: mimetype || 'audio/mpeg', fileName: fileName || 'audio.mp3' };
     } else if (kind === 'image') {
-        content = { image: { url }, caption };
+        content = { image: buffer, caption };
     } else if (kind === 'document') {
-        content = { document: { url }, mimetype: mimetype || 'application/octet-stream', fileName: fileName || 'file', caption };
+        content = { document: buffer, mimetype: mimetype || 'application/octet-stream', fileName: fileName || 'file', caption };
     } else {
-        content = { video: { url }, caption };
+        content = { video: buffer, caption };
     }
     return sock.sendMessage(message.chat, content, { quoted: message.raw });
 };

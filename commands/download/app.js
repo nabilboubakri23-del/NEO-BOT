@@ -1,13 +1,15 @@
 import { box, fields, formatBytes } from '../../utils/formatter.js';
 import { UsageError, UserError } from '../../utils/errors.js';
-import { appSearch, formatSize, MAX_FILE_BYTES, pickApp, sanitizeFilename, sendFile } from './.lib.js';
+import { appSearch, appVerify, downloadFile, formatSize, MAX_FILE_BYTES, pickApp, sanitizeFilename, sendFile } from './.lib.js';
 
 /**
  * Android apps by name, from the Aptoide store (public API, no key):
- *   .app <name>       top matches with version, size and trust badge
+ *   .app <name>       top matches with version, size and screening badge
  *   .app <name> <n>   download match number n (1-5) as an APK document
- * Only apps the store marks TRUSTED can be downloaded; unverified apps are
- * shown as blocked, never sent.
+ * Only apps the store's malware screening marks TRUSTED can be downloaded;
+ * others are shown as blocked, never sent. The badge is store malware
+ * screening, not publisher identity verification or a safety guarantee.
+ * The store state is checked again at download time before any file is fetched.
  */
 
 const LIST_LIMIT = 5;
@@ -16,7 +18,7 @@ export default {
     name: 'app',
     aliases: ['apk', 'تطبيق', 'تطبيقات'],
     category: 'download',
-    description: 'Search Android apps by name and download the APK.',
+    description: 'Search Android apps by name and download store-screened APKs.',
     usage: '<app name> [number]',
     examples: ['app whatsapp', 'app whatsapp 2'],
     permission: 'public',
@@ -44,21 +46,27 @@ export default {
                 ...lines,
                 '',
                 `Download one: ${ctx.prefix}app ${query} <number>`,
-                '✅ verified by the store · 🚫 unverified (blocked)'
+                '✅ passed store malware screening · 🚫 not screened (blocked)'
             ]));
         }
 
-        const app = pickApp(apps, pick); // throws for unknown numbers and unverified apps
-        if (app.size > MAX_FILE_BYTES) throw new UserError(`⚠️ App too large (${formatBytes(app.size)}). Maximum is ${formatSize(MAX_FILE_BYTES)}.`);
+        const selected = pickApp(apps, pick); // throws for unknown numbers and unscreened apps
+
+        // Re-resolve at download time: the store state or link may have changed.
+        const fresh = await appVerify(selected.packageName);
+        if (!fresh.url) throw new UserError('⚠️ Could not confirm that app with the store. Try again later.');
+        if (!fresh.trusted) throw new UserError('⚠️ The store no longer marks that app as screened. Download blocked.');
+        if (fresh.size > MAX_FILE_BYTES) throw new UserError(`⚠️ App too large (${formatBytes(fresh.size)}). Maximum is ${formatSize(MAX_FILE_BYTES)}.`);
 
         await message.react?.('⏳');
+        const data = await downloadFile(fresh.url, { allowHosts: ['aptoide.com'], maxBytes: MAX_FILE_BYTES, expect: ['archive'] });
         await sendFile(sock, message, {
             kind: 'document',
-            url: app.url,
+            buffer: data.buffer,
             mimetype: 'application/vnd.android.package-archive',
-            fileName: `${sanitizeFilename(app.name)}-${app.version || 'latest'}.apk`,
+            fileName: `${sanitizeFilename(fresh.name || selected.name)}-${fresh.version || 'latest'}.apk`,
             caption: box('APP DOWNLOAD', [
-                ...fields({ '📱 App': app.name, '🏷️ Version': app.version, '📦 Size': formatBytes(app.size), '🔰 Store check': 'TRUSTED' })
+                ...fields({ '📱 App': fresh.name || selected.name, '🏷️ Version': fresh.version, '📦 Size': formatSize(data.size), '🔰 Store check': 'passed Aptoide malware screening' })
             ])
         });
     }

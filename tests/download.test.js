@@ -148,7 +148,7 @@ test('pickApp: only store-verified apps can be downloaded', () => {
         { name: 'Bad', trusted: false, url: 'https://x/b.apk' }
     ];
     assert.equal(lib.pickApp(apps, 1).name, 'Good');
-    assert.throws(() => lib.pickApp(apps, 2), /NOT verified/);
+    assert.throws(() => lib.pickApp(apps, 2), /malware screening/);
     assert.throws(() => lib.pickApp(apps, 3), /No app with that number/);
 });
 
@@ -187,3 +187,47 @@ test('sanitizeFilename: strips path and control characters', () => {
     assert.equal(lib.sanitizeFilename(''), 'download');
     assert.ok(lib.sanitizeFilename('x'.repeat(500)).length <= 100);
 });
+
+test('isPrivateIp: covers loopback, private, CGNAT and multicast ranges', () => {
+    assert.ok(lib.isPrivateIp('127.0.0.1'));
+    assert.ok(lib.isPrivateIp('10.1.2.3'));
+    assert.ok(lib.isPrivateIp('172.16.5.5'));
+    assert.ok(lib.isPrivateIp('192.168.1.1'));
+    assert.ok(lib.isPrivateIp('169.254.0.1'));   // link-local / cloud metadata
+    assert.ok(lib.isPrivateIp('100.64.0.1'));    // carrier-grade NAT
+    assert.ok(lib.isPrivateIp('0.0.0.0'));
+    assert.ok(lib.isPrivateIp('224.0.0.1'));     // multicast
+    assert.ok(lib.isPrivateIp('::1'));
+    assert.ok(lib.isPrivateIp('fc00::1'));       // unique-local
+    assert.ok(lib.isPrivateIp('fe80::1'));       // link-local
+    assert.ok(lib.isPrivateIp('::ffff:127.0.0.1')); // IPv4-mapped loopback
+    assert.equal(lib.isPrivateIp('8.8.8.8'), false);
+    assert.equal(lib.isPrivateIp('1.1.1.1'), false);
+    assert.equal(lib.isPrivateIp('2606:4700::1111'), false);
+});
+
+test('sniffKind: recognizes common media magic bytes', () => {
+    assert.equal(lib.sniffKind(Buffer.from('ID3' + 'x'.repeat(20))), 'audio');
+    assert.equal(lib.sniffKind(Buffer.from([0xff, 0xfb, 0, 0])), 'audio');
+    assert.equal(lib.sniffKind(Buffer.from('OggS' + 'x'.repeat(20))), 'audio');
+    const mp4 = Buffer.alloc(16); mp4.write('0000ftypmp42');
+    assert.equal(lib.sniffKind(mp4), 'video');
+    assert.equal(lib.sniffKind(Buffer.from('PK\x03\x04' + 'x'.repeat(20))), 'archive');
+    assert.equal(lib.sniffKind(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2])), 'image');
+    assert.equal(lib.sniffKind(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), 'image');
+    assert.equal(lib.sniffKind(Buffer.from('GIF89a' + 'x'.repeat(10))), 'image');
+    assert.equal(lib.sniffKind(Buffer.from('<!DOCTYPE html>')), 'htmlpage');
+    assert.equal(lib.sniffKind(Buffer.from('hello world this is text')), 'unknown');
+    assert.equal(lib.sniffKind(Buffer.from([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08])), 'unknown');
+});
+
+test('downloadFile: rejects non-https, oversized and private targets before sending', async () => {
+    await assert.rejects(() => lib.downloadFile('ftp://example.com/file.bin'), /https|[Uu]nsafe/);
+    await assert.rejects(() => lib.downloadFile('http://169.254.169.254/latest/meta-data'), /unsafe download address|Could not reach/i);
+    await assert.rejects(() => lib.downloadFile('https://127.0.0.1/x'), /unsafe download address|Could not reach/i);
+    await assert.rejects(() => lib.downloadFile('https://[::1]/x'), /unsafe download address|Could not reach/i);
+    await assert.rejects(() => lib.downloadFile('https://192.168.1.1/x'), /unsafe download address|Could not reach/i);
+    // DNS resolution of a non-existent TLD fails the safe lookup
+    await assert.rejects(() => lib.downloadFile('https://host.invalid/x'), /Could not reach/);
+});
+

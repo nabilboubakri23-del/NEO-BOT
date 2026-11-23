@@ -1,6 +1,6 @@
 import { box } from '../../utils/formatter.js';
 import { UserError } from '../../utils/errors.js';
-import { assertUrl, cobaltDownload, isCobaltConfigured, NOT_CONFIGURED, sendFile } from './.lib.js';
+import { assertUrl, cobaltDownload, deliverMedia, isCobaltConfigured, NOT_CONFIGURED } from './.lib.js';
 
 /**
  * Instagram downloads through the owner-configured cobalt-compatible backend:
@@ -25,12 +25,10 @@ export default {
         const url = assertUrl(args[0], IG_HOSTS, 'Instagram link');
         await message.react?.('⏳');
         const result = await cobaltDownload(url, { audio: false });
-        if (result.kind === 'picker') {
-            const first = result.items[0];
-            const caption = box('INSTAGRAM', ['✅ Done.', result.items.length > 1 && `Post has ${result.items.length} items; sent the first.`].filter(Boolean));
-            await sendFile(sock, message, { kind: first.type === 'video' ? 'video' : 'image', url: first.url, caption });
-            return;
-        }
-        await sendFile(sock, message, { kind: 'video', url: result.url, caption: box('INSTAGRAM', ['✅ Done.']) });
+        const caption = box('INSTAGRAM', [
+            '✅ Done.',
+            result.kind === 'picker' && result.items.length > 1 && `Post has ${result.items.length} items; sent the first.`
+        ].filter(Boolean));
+        await deliverMedia(sock, message, result, { caption });
     }
 };

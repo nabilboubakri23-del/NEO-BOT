@@ -1,12 +1,13 @@
 import { box } from '../../utils/formatter.js';
 import { UsageError, UserError } from '../../utils/errors.js';
-import { assertUrl, cobaltDownload, isCobaltConfigured, NOT_CONFIGURED, sendFile, youtubeSearch } from './.lib.js';
+import { assertUrl, cobaltDownload, deliverMedia, isCobaltConfigured, NOT_CONFIGURED, youtubeSearch } from './.lib.js';
 
 /**
  * YouTube downloads through the owner-configured cobalt-compatible backend:
  *   .yt <link>    video (720p)
  *   .ytmp3 <link> audio (mp3)
  *   .play <song or video name>  search YouTube, download the first result's audio
+ * Media is downloaded by the bot (size-capped, type-checked) before sending.
  */
 
 const YT_HOSTS = ['youtube.com', 'youtu.be', 'music.youtube.com'];
@@ -14,14 +15,7 @@ const YT_HOSTS = ['youtube.com', 'youtu.be', 'music.youtube.com'];
 const download = async (sock, message, url, audio) => {
     await message.react?.('⏳');
     const result = await cobaltDownload(url, { audio, quality: '720' });
-    if (result.kind === 'picker') {
-        // YouTube rarely returns a picker; take the first item defensively.
-        const first = result.items[0];
-        return sendFile(sock, message, { kind: first.type === 'video' ? 'video' : 'image', url: first.url, caption: box('YOUTUBE', ['✅ Done.']) });
-    }
-    await sendFile(sock, message, audio
-        ? { kind: 'audio', url: result.url, fileName: `${result.fileName || 'youtube-audio'}.mp3` }
-        : { kind: 'video', url: result.url, caption: box('YOUTUBE', ['✅ Done.']) });
+    await deliverMedia(sock, message, result, { audio, caption: audio ? '' : box('YOUTUBE', ['✅ Done.']) });
 };
 
 const guardConfigured = () => {

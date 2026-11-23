@@ -1,12 +1,13 @@
 import { box } from '../../utils/formatter.js';
 import { UserError } from '../../utils/errors.js';
-import { assertUrl, cobaltDownload, isCobaltConfigured, sendFile, tiktokDownload } from './.lib.js';
+import { assertUrl, cobaltDownload, deliverMedia, downloadFile, isCobaltConfigured, MAX_MEDIA_BYTES, sendFile, tiktokDownload } from './.lib.js';
 
 /**
  * TikTok downloads, no watermark when available:
  *   .tiktok <link>   video without watermark (+ audio when the video has none)
  * Primary provider: ssstik.io (no key needed). Falls back to the
  * cobalt-compatible backend when it is configured.
+ * Media is downloaded by the bot (size-capped, type-checked) before sending.
  */
 
 const TT_HOSTS = ['tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com'];
@@ -29,11 +30,13 @@ export default {
             const result = await tiktokDownload(url);
             const caption = box('TIKTOK', [result.author && `👤 ${result.author}`, '✅ Without watermark.'].filter(Boolean));
             if (result.videoUrl) {
-                await sendFile(sock, message, { kind: 'video', url: result.videoUrl, caption });
+                const file = await downloadFile(result.videoUrl, { allowHosts: ['tikcdn.io'], maxBytes: MAX_MEDIA_BYTES, expect: ['video'] });
+                await sendFile(sock, message, { kind: 'video', buffer: file.buffer, caption });
                 return;
             }
             if (result.audioUrl) {
-                await sendFile(sock, message, { kind: 'audio', url: result.audioUrl, fileName: 'tiktok.mp3' });
+                const file = await downloadFile(result.audioUrl, { allowHosts: ['tikcdn.io'], maxBytes: MAX_MEDIA_BYTES, expect: ['audio'] });
+                await sendFile(sock, message, { kind: 'audio', buffer: file.buffer, fileName: 'tiktok.mp3' });
                 return;
             }
         } catch (error) {
@@ -42,11 +45,6 @@ export default {
         }
 
         const result = await cobaltDownload(url, { audio: false });
-        if (result.kind === 'picker') {
-            const first = result.items[0];
-            await sendFile(sock, message, { kind: first.type === 'video' ? 'video' : 'image', url: first.url, caption: box('TIKTOK', ['✅ Done.']) });
-            return;
-        }
-        await sendFile(sock, message, { kind: 'video', url: result.url, caption: box('TIKTOK', ['✅ Done.']) });
+        await deliverMedia(sock, message, result, { caption: box('TIKTOK', ['✅ Done.']) });
     }
 };
