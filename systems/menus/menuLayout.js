@@ -8,6 +8,7 @@ export const CATEGORIES = Object.freeze([
     { key: 'ai', title: 'AI CENTER', description: 'Chat AI, translator, text assistant.', section: 'MAIN SYSTEMS', aliases: ['ai_center'] },
     { key: 'tools', title: 'SMART TOOLS', description: 'Calculator, QR, passwords and more.', section: 'MAIN SYSTEMS', aliases: ['smart_tools', 'tool', 'utility'] },
     { key: 'media', title: 'MEDIA LAB', description: 'Image, video and audio tools.', section: 'MAIN SYSTEMS', aliases: ['media_lab'] },
+    { key: 'download', title: 'DOWNLOADS', description: 'Videos, music, apps and files.', section: 'MAIN SYSTEMS', aliases: ['downloads', 'dl'] },
     { key: 'knowledge', title: 'KNOWLEDGE', description: 'Wikipedia, search and facts.', section: 'OTHER SYSTEMS', aliases: ['search'] },
     { key: 'automation', title: 'AUTOMATION', description: 'Auto reply, schedules, reminders.', section: 'OTHER SYSTEMS', aliases: [] },
     { key: 'games', title: 'GAMES & LEVELS', description: 'Games, levels, coins and rewards.', section: 'OTHER SYSTEMS', aliases: ['game', 'fun', 'economy', 'bank', 'levels'] },
