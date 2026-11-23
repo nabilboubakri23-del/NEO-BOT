@@ -88,7 +88,7 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 | `.yt <link>` · `.ytmp3 <link>` (youtube, يوتيوب) | 👤 everyone | YouTube video (720p) / audio MP3. Needs the download backend. |
 | `.play <name>` (شغل) | 👤 everyone | Search YouTube by name, download the first result's audio. Needs the backend. |
 | `.instagram <link>` (insta, انستا) · `.facebook <link>` (fb, فيسبوك) | 👤 everyone | Public Instagram / Facebook videos. Need the backend. |
-| `.spotify <track link>` (سبوتيفاي) | 👤 everyone | Track info + matched MP3 (matched from YouTube, not a Spotify rip). Needs the backend for audio. |
+| `.spotify <track link>` (سبوتيفاي) | 👤 everyone | Track as MP3 via a free third-party converter (not an official Spotify download); falls back to the download backend. |
 
 | **Games & levels** | | |
 | `.xo [bot\|end]` (ttt) | 👤 everyone | Tic-tac-toe vs a friend or the bot (plugin `tictactoe`). |
@@ -374,8 +374,7 @@ check and WhatsApp check are still needed after configuring the real host key.
 
 ## Download backend (optional)
 
-Commands that fetch media from YouTube, Instagram, Facebook and the Spotify audio
-match use a [cobalt-compatible](https://github.com/imputnet/cobalt) download
+Commands that fetch media from YouTube, Instagram and Facebook use a [cobalt-compatible](https://github.com/imputnet/cobalt) download
 backend: set `DOWNLOAD_API_BASE` on the server (plus `DOWNLOAD_API_KEY` when the
 instance requires a key). TikTok, MediaFire and `.app` work without any backend.
 Every user URL is checked against a per-platform allowlist, and redirects are

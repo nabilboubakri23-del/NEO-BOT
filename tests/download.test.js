@@ -231,3 +231,25 @@ test('downloadFile: rejects non-https, oversized and private targets before send
     await assert.rejects(() => lib.downloadFile('https://host.invalid/x'), /Could not reach/);
 });
 
+
+test('parseSpotmateForms: extracts track data and token from converter forms', () => {
+    const data = Buffer.from(JSON.stringify({ name: 'Song Title', tid: 'abc' })).toString('base64');
+    const html = `<html><body>
+        <form><input type="hidden" name="data" value="${data}"><input type="hidden" name="token" value="tok123"><input type="hidden" name="base" value="https://open.spotify.com/track/x"></form>
+        <form><input type="hidden" name="data" value="not-base64!!"></form>
+    </body></html>`;
+    const tracks = lib.parseSpotmateForms(html);
+    assert.equal(tracks.length, 1);
+    assert.equal(tracks[0].token, 'tok123');
+    assert.equal(tracks[0].title, 'Song Title');
+});
+
+test('parseSpotmateDownload: picks the mp3 link, skips covers, ads and foreign hosts', () => {
+    const html = `
+        <a href="https://tunecable.com/premium">Go premium</a>
+        <a href="https://i.scdn.co/image/ab67616d0000b273">cover</a>
+        <a href="https://evil.example.com/track.mp3">download</a>
+        <a href="https://dl.spotimate.app/v1?token=xyz">Download MP3</a>`;
+    assert.equal(lib.parseSpotmateDownload(html), 'https://dl.spotimate.app/v1?token=xyz');
+    assert.equal(lib.parseSpotmateDownload('<a href="https://i.scdn.co/x.jpg">cover</a>'), '');
+});

@@ -514,3 +514,128 @@ export const formatSize = (bytes) => {
     if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 };
+
+// ── Spotify via spotimate.app (free converter, keyless, server-side) ─────
+
+const SPOTIMATE_HOSTS = ['spotimate.app'];
+
+/** Raw request through the DNS guard that also exposes status and headers (for cookies). */
+const requestRaw = (url, { method = 'GET', headers = {}, body, maxBytes = MAX_PAGE_BYTES } = {}) =>
+    new Promise((resolve, reject) => {
+        const req = https.request(url, { method, headers: { 'User-Agent': UA, ...headers }, lookup: safeLookup, timeout: 30_000 }, (res) => {
+            const chunks = [];
+            let total = 0;
+            res.on('data', (chunk) => {
+                total += chunk.length;
+                if (total > maxBytes) {
+                    req.destroy(new Error('Response too large'));
+                    return;
+                }
+                chunks.push(chunk);
+            });
+            res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, text: Buffer.concat(chunks).toString('utf8') }));
+            res.on('error', reject);
+        });
+        req.on('timeout', () => req.destroy(new Error('Request timed out')));
+        req.on('error', reject);
+        if (body) req.write(body);
+        req.end();
+    });
+
+const cookieHeader = (headers) => (headers['set-cookie'] || []).map((c) => String(c).split(';')[0]).join('; ');
+
+const multipart = (fields) => {
+    const boundary = `----NeoBotForm${crypto.randomBytes(8).toString('hex')}`;
+    const body = Object.entries(fields)
+        .map(([k, v]) => `--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`)
+        .join('') + `--${boundary}--\r\n`;
+    return { body, contentType: `multipart/form-data; boundary=${boundary}` };
+};
+
+/** Extract per-track form fields (data, token, base) from spotimate's /action HTML. */
+export const parseSpotmateForms = (html) => {
+    const tracks = [];
+    for (const form of String(html || '').match(/<form[\s\S]*?<\/form>/gi) || []) {
+        const value = (name) => {
+            const re = new RegExp(`<input[^>]*name=["']${name}["'][^>]*value=["']([^"']*)["']`, 'i');
+            const re2 = new RegExp(`<input[^>]*value=["']([^"']*)["'][^>]*name=["']${name}["']`, 'i');
+            return form.match(re)?.[1] || form.match(re2)?.[1] || '';
+        };
+        const data = value('data');
+        const token = value('token') || value('track_token');
+        if (!data || !token) continue;
+        let title = '';
+        try {
+            const decoded = JSON.parse(Buffer.from(data, 'base64').toString('utf8'));
+            title = decoded.name || decoded.title || '';
+        } catch { /* keep empty title */ }
+        tracks.push({ data, token, base: value('base'), title });
+    }
+    return tracks;
+};
+
+/** Pick the real MP3 link out of spotimate's /action/track HTML (skip covers and ads). */
+export const parseSpotmateDownload = (html) => {
+    for (const match of String(html || '').matchAll(/<a\b[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>/gi)) {
+        const href = match[1];
+        const lower = href.toLowerCase();
+        if (lower.includes('tunecable') || lower.includes('premium')) continue;
+        if (/scdn\.co|\.(jpg|jpeg|png|webp)(\?|$)/i.test(lower)) continue;
+        if (!hostAllowed(new URL(href).hostname, SPOTIMATE_HOSTS)) continue;
+        return href;
+    }
+    return '';
+};
+
+/**
+ * Resolve a Spotify track to a downloadable MP3 URL through spotimate.app.
+ * Free and keyless; it is a third-party converter, not an official Spotify download.
+ */
+export const spotifyDownload = async (url) => {
+    const clean = String(url).trim().split('?')[0];
+    const base = 'https://spotimate.app';
+    let cookies = '';
+    try {
+        const landing = await requestRaw(`${base}/en1`);
+        if (landing.status !== 200) throw new Error('landing');
+        cookies = cookieHeader(landing.headers);
+
+        let token = '';
+        try {
+            const verify = await requestRaw(`${base}/api/userverify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest', Referer: `${base}/en1`, Origin: base, Cookie: cookies },
+                body: `url=${encodeURIComponent(clean)}`
+            });
+            token = JSON.parse(verify.text)?.token || '';
+            const more = cookieHeader(verify.headers);
+            if (more) cookies = cookies ? `${cookies}; ${more}` : more;
+        } catch { /* the converter works without the verify token */ }
+
+        const step1 = multipart({ url: clean, cftoken: token });
+        const action = await requestRaw(`${base}/action`, {
+            method: 'POST',
+            headers: { 'Content-Type': step1.contentType, Referer: `${base}/en1`, Origin: base, Cookie: cookies },
+            body: step1.body
+        });
+        const actionJson = JSON.parse(action.text);
+        if (actionJson?.success === false) throw new Error('refused');
+        const tracks = parseSpotmateForms(actionJson?.html || '');
+        if (!tracks.length) throw new Error('no tracks');
+        const track = tracks[0];
+
+        const step2 = multipart({ data: track.data, base: track.base || clean, token: track.token });
+        const dl = await requestRaw(`${base}/action/track`, {
+            method: 'POST',
+            headers: { 'Content-Type': step2.contentType, Referer: `${base}/en1`, Origin: base, Cookie: cookies },
+            body: step2.body
+        });
+        const dlJson = JSON.parse(dl.text);
+        const mp3 = parseSpotmateDownload(dlJson?.data || dlJson?.html || '');
+        if (!mp3) throw new Error('no mp3 link');
+        return { title: track.title, url: mp3 };
+    } catch (error) {
+        if (error?.expose) throw error;
+        throw new UserError('⚠️ Could not download that Spotify track right now. Try again later.');
+    }
+};
