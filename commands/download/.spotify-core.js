@@ -1,6 +1,7 @@
 import { access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { UserError } from '../../utils/errors.js';
+import { withTimeout } from '../../utils/async.js';
 import {
     downloadFile, fetchText, isCobaltConfigured, cobaltDownload, MAX_MEDIA_BYTES,
     sanitizeFilename, spotifyDownload, spotifySearch, spotifyInfo, youtubeSearch, sniffKind
@@ -19,14 +20,7 @@ import { extractMedia, EXTRACTOR_HOSTS, binaryPath } from './.extractor.js';
 export const TRACK_ID = /^[A-Za-z0-9]{22}$/;
 export const JOB_DEADLINE_MS = 120_000;
 
-/** Runs fn with a deadline; the losing promise is ignored. */
-export const withTimeout = (promise, ms, message = 'timed out') => {
-    let timer;
-    return Promise.race([
-        promise,
-        new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error(message), { timeout: true })), ms); })
-    ]).finally(() => clearTimeout(timer));
-};
+export { withTimeout };
 
 /**
  * Classifies user text: a track link/URI, a short spotify.link, an unsupported

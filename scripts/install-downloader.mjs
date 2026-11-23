@@ -22,3 +22,13 @@ await writeFile(path.join(folder, 'yt-dlp.tmp'), buffer, { mode: 0o700 });
 await rename(path.join(folder, 'yt-dlp.tmp'), path.join(folder, 'yt-dlp'));
 await chmod(path.join(folder, 'yt-dlp'), 0o700);
 console.log(`Verified downloader ${version} installed.`);
+
+// Static ffmpeg (pinned, checksum-verified) for muxing Pinterest HLS videos and media conversion.
+// A failure here never breaks the build: the bot downloads it again on first use.
+try {
+    const { installBundled, works } = await import('../systems/media/ffmpegBinary.js');
+    const bin = await installBundled();
+    console.log(`Verified ffmpeg installed: ${(await works(bin)) ? 'ok' : 'not runnable'}.`);
+} catch (error) {
+    console.log(`ffmpeg install skipped: ${error.message}`);
+}

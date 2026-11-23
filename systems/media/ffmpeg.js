@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import config from '../../config/config.js';
+import { resolveFfmpeg, resetFfmpegResolution } from './ffmpegBinary.js';
 import { child } from '../../core/logger.js';
 import { UserError } from '../../utils/errors.js';
 
@@ -16,13 +16,14 @@ import { UserError } from '../../utils/errors.js';
 const log = child('ffmpeg');
 const TIMEOUT_MS = 90_000;
 let detected = null;
+let binary = 'ffmpeg';
 
-const run = (args, { timeoutMs = TIMEOUT_MS } = {}) =>
+const run = (args, { timeoutMs = TIMEOUT_MS, bin } = {}) =>
     new Promise((resolve, reject) => {
         let stderr = '';
         let proc;
         try {
-            proc = spawn(config.media.ffmpegPath, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+            proc = spawn(bin || binary, args, { stdio: ['ignore', 'ignore', 'pipe'] });
         } catch (error) {
             reject(error);
             return;
@@ -45,17 +46,16 @@ const run = (args, { timeoutMs = TIMEOUT_MS } = {}) =>
 /** True when the ffmpeg binary can be started (cached after the first check). */
 export const hasFfmpeg = async () => {
     if (detected !== null) return detected;
-    detected = await run(['-hide_banner', '-version'], { timeoutMs: 10_000 }).then(
-        () => true,
-        () => false
-    );
+    const found = await resolveFfmpeg();
+    if (found) binary = found;
+    detected = Boolean(found);
     if (!detected) log.warn('ffmpeg not found: media conversion commands are limited. Set FFMPEG_PATH or install ffmpeg.');
     return detected;
 };
 
 /** Throws a user-facing error when ffmpeg is missing. */
 export const requireFfmpeg = async () => {
-    if (!(await hasFfmpeg())) throw new UserError('This needs ffmpeg, which is not installed on this server (Termux: pkg install ffmpeg).');
+    if (!(await hasFfmpeg())) throw new UserError('This needs ffmpeg, which is not available on this server (Termux: pkg install ffmpeg).');
 };
 
 /**
@@ -85,4 +85,14 @@ export const convert = async (input, { inExt, outExt, args, timeoutMs }) => {
 /** Test hook: forget the cached detection. */
 export const resetFfmpegDetection = () => {
     detected = null;
+    resetFfmpegResolution();
+};
+
+/**
+ * Runs ffmpeg with raw arguments (inputs/outputs are paths the caller owns).
+ * Used by multi-input jobs such as muxing a video track with its audio track.
+ */
+export const runFfmpeg = async (args, { timeoutMs } = {}) => {
+    await requireFfmpeg();
+    return run(['-hide_banner', '-loglevel', 'error', '-y', ...args], { timeoutMs });
 };

@@ -265,6 +265,6 @@ test('assist: lone prefix explains commands; only very close typos get a suggest
     const n = sock.sent.length;
     await commandHandler.handleCommand(sock, msg(sock, '.wassup', { number: '212677777778' }));
     assert.equal(sock.sent.length, n); // far from every command: silent
-    await commandHandler.handleCommand(sock, msg(sock, '.pinj', { number: '212677777778' }));
+    await commandHandler.handleCommand(sock, msg(sock, '.pinng', { number: '212677777778' }));
     assert.match(JSON.stringify(sock.sent.at(-1)), /Did you mean \.ping/);
 });

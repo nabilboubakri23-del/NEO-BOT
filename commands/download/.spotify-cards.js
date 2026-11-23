@@ -2,7 +2,8 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { Carousel, prepareWAMessageMedia } from 'baileys';
 import { downloadFile } from './.lib.js';
-import { withTimeout } from './.spotify-core.js';
+import { withTimeout } from '../../utils/async.js';
+import { BIZ_NODE } from '../../systems/menus/carousel.js';
 
 /**
  * Spotify result cards: a swipeable carousel, one card per track with its cover.
@@ -67,7 +68,7 @@ export const sendSpotifyCarousel = async (sock, message, session) => {
     const images = await withTimeout(uploadAll(sock, session.tracks), COVER_DEADLINE_MS, 'Cover upload timed out');
     if (session.cancelled) throw new Error('Session cancelled');
     const msg = spotifyCarousel(sock, session, images).build(message.chat, { quoted: message.raw, userJid: sock.user?.id });
-    // Relay directly (same reason as the menu helper: avoid a duplicate <biz> node).
-    await sock.relayMessage(msg.key.remoteJid, msg.message, { messageId: msg.key.id });
+    // Carousels need the native_flow biz node; Baileys does not add it for them (see systems/menus/carousel.js).
+    await sock.relayMessage(msg.key.remoteJid, msg.message, { messageId: msg.key.id, additionalNodes: [BIZ_NODE] });
     return msg;
 };
