@@ -56,7 +56,7 @@ export const fillPlaceholders = (template, { name = '', number = '', now = new D
 };
 
 /** Auto-react modes. `true` is the v1.4 "on" and means trigger words only. */
-export const REACT_MODES = Object.freeze(['words', 'all', 'owner']);
+export const REACT_MODES = Object.freeze(['smart', 'words', 'all', 'owner']);
 export const reactMode = (value) => (value === true ? 'words' : REACT_MODES.includes(value) ? value : null);
 
 /** Splits "😂 🔥, ❤️" into a clean emoji list (max 20, each up to 8 chars). */

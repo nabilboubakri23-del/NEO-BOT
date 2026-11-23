@@ -12,17 +12,20 @@ import {
 } from '../systems/automation/responders.js';
 import { box } from '../utils/formatter.js';
 import { sendListMenu } from '../systems/menus/interactiveMenu.js';
+import { DEFAULT_OWNER_EMOJIS, detectMood, MOODS, moodEmoji, OWNER_EXCLUSIVE } from '../systems/automation/mood.js';
 import { UsageError, UserError } from '../utils/errors.js';
 
 /**
  * Auto-replies and auto-reactions. OFF everywhere until switched on.
  *
- *   .autoreact on | all          react to every message in this chat (trigger words pick the emoji)
+ *   .autoreact smart             react only when a mood is detected (laugh, love, sad, thanks...)
+ *   .autoreact on | all          react to every message (mood → trigger word → random emoji)
  *   .autoreact words             react only to trigger words
  *   .autoreact owner             react only to messages from owners and above (owner+ to set)
  *   .autoreact off
  *   .autoreact global <mode|off> default for every chat without its own setting (owner+)
- *   .autoreact emojis 😂 🔥 ❤️ | reset   emoji pool for "all"/"owner" (owner+)
+ *   .autoreact emojis 😂 🔥 ❤️ | reset   public emoji pool (owner+; owner-only emojis refused)
+ *   .autoreact vip 👑 💎 | reset         owner-only pool (owner+); never used on anyone else
  *   .autoreact add <word> | <emoji> [| emoji] · del <word> · list   (owner+)
  *
  *   .autoreply on|off · global on|off (owner+) · add <trigger> | <reply> [| reply] · del · list
@@ -43,8 +46,9 @@ const wordLimiter = new NoticeLimiter(15_000, 1000); // per chat + emoji + sende
 const senderLimiter = new NoticeLimiter(20_000, 2000); // "all": one reaction per sender per 20 s
 const chatLimiter = new NoticeLimiter(3_000, 1000); // "all": at most one reaction per chat per 3 s
 const ownerLimiter = new NoticeLimiter(2_000, 500); // "owner": per chat + sender
+const smartLimiter = new NoticeLimiter(8_000, 2000); // "smart": per chat + sender
 
-const EMPTY = () => ({ reply: { chats: {}, rules: {}, global: false }, react: { chats: {}, rules: {}, global: null, emojis: [] } });
+const EMPTY = () => ({ reply: { chats: {}, rules: {}, global: false }, react: { chats: {}, rules: {}, global: null, emojis: [], ownerEmojis: [] } });
 
 const open = async (api) => {
     const doc = await api.store.open(DOC, EMPTY);
@@ -68,6 +72,7 @@ const replyOnFor = (store, chat) => {
 };
 
 const MODE_LABEL = {
+    smart: '🧠 smart (reacts to the mood)',
     all: '🌐 every message',
     words: '🔤 trigger words only',
     owner: '👑 owners and above only'
@@ -114,7 +119,7 @@ async function reactCommand(sock, message, args, ctx) {
     const reply = (lines) => (ctx.respond ? ctx.respond(lines) : message.reply(box(title, lines)));
 
     if (sub === 'status' || sub === 'menu' || sub === 'help') return reactPanel(sock, message, ctx, store);
-    if (['on', 'all', 'words', 'owner', 'off'].includes(sub)) {
+    if (['on', 'all', 'smart', 'words', 'owner', 'off'].includes(sub)) {
         const mode = sub === 'on' ? 'all' : sub;
         if (mode === 'owner') requireOwner(ctx, 'use owner mode');
         else if (!(await canSwitchChat(message, ctx))) throw new UserError(message.isGroup ? 'Group admins only.' : 'Owners only in private chats.');
@@ -128,21 +133,29 @@ async function reactCommand(sock, message, args, ctx) {
         requireOwner(ctx, 'set the global default');
         const value = String(args[1] || '').toLowerCase();
         const mode = value === 'on' ? 'all' : value;
-        if (!['all', 'words', 'owner', 'off'].includes(mode)) throw new UsageError(`${P}autoreact global all|words|owner|off`);
+        if (!['all', 'smart', 'words', 'owner', 'off'].includes(mode)) throw new UsageError(`${P}autoreact global smart|all|words|owner|off`);
         section.global = mode === 'off' ? null : mode;
         save();
         return reply([mode === 'off' ? '⏸️ Global default: OFF.' : `🌍 Global default: ${MODE_LABEL[mode]}.`, 'Chats with their own setting keep it.']);
     }
-    if (sub === 'emojis') {
-        requireOwner(ctx, 'change the emoji pool');
-        if (/^reset$/i.test(rest.trim())) section.emojis = [];
+    if (sub === 'emojis' || sub === 'vip') {
+        requireOwner(ctx, 'change the emoji pools');
+        const field = sub === 'vip' ? 'ownerEmojis' : 'emojis';
+        const notes = [];
+        if (/^reset$/i.test(rest.trim())) section[field] = [];
         else {
-            const list = parseEmojis(rest);
-            if (!list.length) throw new UsageError(`${P}autoreact emojis 😂 🔥 ❤️  |  ${P}autoreact emojis reset`);
-            section.emojis = list;
+            let list = parseEmojis(rest);
+            if (sub === 'emojis') {
+                const reserved = list.filter((e) => OWNER_EXCLUSIVE.has(e) || (section.ownerEmojis || []).includes(e));
+                list = list.filter((e) => !reserved.includes(e));
+                if (reserved.length) notes.push(`👑 Kept for owners only: ${reserved.join(' ')}`);
+            }
+            if (!list.length) throw new UsageError(`${P}autoreact ${sub} ${sub === 'vip' ? '👑 💎' : '😂 🔥 ❤️'}  |  ${P}autoreact ${sub} reset`);
+            section[field] = list;
+            if (sub === 'vip') section.emojis = section.emojis.filter((e) => !list.includes(e));
         }
         save();
-        return reply([`🎨 Pool: ${(section.emojis.length ? section.emojis : DEFAULT_EMOJIS).join(' ')}`]);
+        return reply([`🎨 Everyone: ${pool(store).join(' ')}`, `👑 Owners: ${ownerPool(store).join(' ')}`, ...notes]);
     }
     if (sub === 'list') return reply(listLines(section, 'emoji'));
     if (sub === 'add' || sub === 'del') {
@@ -204,23 +217,28 @@ async function reactPanel(sock, message, ctx, store, notice = []) {
         `Here: ${mode ? MODE_LABEL[mode] : 'OFF'}${own === undefined && mode ? ' (global)' : ''}`,
         `All chats: ${section.global ? MODE_LABEL[section.global] : 'OFF'}`,
         `Emojis: ${pool(store).join(' ')}`,
+        ...(isOwner ? [`👑 Owner-only: ${ownerPool(store).join(' ')}`] : []),
         `Trigger words: ${Object.keys(section.rules).length}`,
         '',
-        '🌐 All: reacts to every message',
-        '🔤 Words: only to your trigger words',
-        '👑 Owner: only to owners and above',
+        '🧠 Smart: reacts to the mood of a message',
+        `   ${Object.values(MOODS).map((m) => m.label.split(' ')[0]).join(' ')}`,
+        '   ههههه → 😂 · احبك → ❤️ · شكرا → 🙏 · مبروك → 🎉',
+        '🌐 All: every message (mood first, else random)',
+        '🔤 Words: only your trigger words',
+        '👑 Owner: only owners and above, with owner-only emojis',
         '',
         'Owners can also type:',
         `${P}autoreact add hello | 👋 🔥`,
         `${P}autoreact emojis 😂 🔥 ❤️`,
-        `${P}autoreact del hello`
+        `${P}autoreact vip 👑 💎 ⚡`
     ]);
     const sections = [];
     if (canSwitch) {
         const rows = [
+            row('autoreact:set:smart', `${mark(mode === 'smart' && own !== undefined)}🧠 Smart (mood)`, 'React only when a feeling is detected'),
             row('autoreact:set:all', `${mark(mode === 'all' && own !== undefined)}🌐 All messages`, 'React to every message in this chat'),
             row('autoreact:set:words', `${mark(mode === 'words' && own !== undefined)}🔤 Trigger words`, 'React only to the words you added'),
-            ...(isOwner ? [row('autoreact:set:owner', `${mark(mode === 'owner' && own !== undefined)}👑 Owners only`, 'React only to owners and above')] : []),
+            ...(isOwner ? [row('autoreact:set:owner', `${mark(mode === 'owner' && own !== undefined)}👑 Owners only`, 'Only owners, with owner-only emojis')] : []),
             row('autoreact:set:off', `${mark(own === 'off')}⛔ Off here`, 'No reactions in this chat')
         ];
         sections.push({ title: 'THIS CHAT', rows });
@@ -230,8 +248,8 @@ async function reactPanel(sock, message, ctx, store, notice = []) {
         sections.push({
             title: 'ALL CHATS (OWNER)',
             rows: [
-                row('autoreact:global:all', `${mark(g === 'all')}🌍 All messages`, 'Default for every chat'),
-                row('autoreact:global:owner', `${mark(g === 'owner')}🌍 Owners only`, 'React to owners in every chat'),
+                row('autoreact:global:smart', `${mark(g === 'smart')}🌍 Smart everywhere`, 'Mood reactions in every chat'),
+                row('autoreact:global:owner', `${mark(g === 'owner')}🌍 Owners everywhere`, 'React to owners in every chat'),
                 row('autoreact:global:off', `${mark(!g)}🌍 Off`, 'Chats keep their own setting')
             ]
         });
@@ -240,14 +258,14 @@ async function reactPanel(sock, message, ctx, store, notice = []) {
         title: 'MORE',
         rows: [
             row('autoreact:list', '📋 Trigger words', 'Show the words and their emojis'),
-            ...(isOwner ? [row('autoreact:emojis:reset', '🎨 Default emojis', DEFAULT_EMOJIS.join(' '))] : [])
+            ...(isOwner ? [row('autoreact:emojis:reset', '🎨 Reset emojis', 'Back to the default public emojis')] : [])
         ]
     });
     return sendListMenu(
         sock,
         message.chat,
         { title: config.bot.name, body, footer: config.bot.footer || '', buttonText: 'OPTIONS', sections },
-        { quoted: message.raw, fallbackText: `${body}\n\n${P}autoreact on | words | owner | off\n${P}autoreact global all | owner | off` }
+        { quoted: message.raw, fallbackText: `${body}\n\n${P}autoreact smart | on | words | owner | off\n${P}autoreact global smart | all | owner | off` }
     );
 }
 
@@ -320,7 +338,7 @@ const command = (kind, description, execute) => ({
     name: `auto${kind}`,
     category: 'automation',
     description,
-    usage: kind === 'react' ? '[on|words|owner|off|global|emojis|add|del|list]' : '[on|off|global|add <trigger> | <reply>|del|list]',
+    usage: kind === 'react' ? '[smart|on|words|owner|off|global|emojis|vip|add|del|list]' : '[on|off|global|add <trigger> | <reply>|del|list]',
     permission: 'public',
     cooldown: 1, // panel taps come in quick succession
     execute,
@@ -328,35 +346,54 @@ const command = (kind, description, execute) => ({
 });
 
 const hasContent = (message) => Boolean(message.text || message.mediaType);
-const pool = (store) => (store.react.emojis?.length ? store.react.emojis : DEFAULT_EMOJIS);
 const randomOf = (list) => list[Math.floor(Math.random() * list.length)];
+const isReserved = (store, emoji) => OWNER_EXCLUSIVE.has(emoji) || (store.react.ownerEmojis || []).includes(emoji);
+/** Public pool: never contains an owner-only emoji. */
+const pool = (store) => {
+    const list = (store.react.emojis?.length ? store.react.emojis : DEFAULT_EMOJIS).filter((e) => !isReserved(store, e));
+    return list.length ? list : DEFAULT_EMOJIS;
+};
+const ownerPool = (store) => (store.react.ownerEmojis?.length ? store.react.ownerEmojis : DEFAULT_OWNER_EMOJIS);
 
-/** Emoji to react with, or null (also applies the rate limits). */
+/**
+ * Emoji to react with, or null (also applies the rate limits).
+ * Order: the message's mood → an owner's trigger word → a random emoji (only in "all"/"owner").
+ * Owners get owner-only emojis; nobody else ever does.
+ */
 export const chooseReaction = (store, mode, message, { isOwnerSender }) => {
     const text = message.text || '';
-    const word = findReaction(store.react.rules, text);
     const sender = message.senderNumber || message.sender;
+    const mood = text ? detectMood(text) : null;
+    let word = findReaction(store.react.rules, text);
+    if (word && !isOwnerSender && isReserved(store, word)) word = null;
+    const fromMood = mood ? moodEmoji(mood.mood, { owner: isOwnerSender }) : null;
+    const fallback = () => (isOwnerSender ? randomOf(ownerPool(store)) : randomOf(pool(store)));
+
     if (mode === 'words') return word && wordLimiter.allow(`${message.chat}|${word}|${sender}`) ? word : null;
+    if (mode === 'smart') {
+        const emoji = word || fromMood;
+        return emoji && smartLimiter.allow(`${message.chat}|${sender}`) ? emoji : null;
+    }
     if (mode === 'owner') {
         if (!isOwnerSender) return null;
-        return ownerLimiter.allow(`${message.chat}|${sender}`) ? word || randomOf(pool(store)) : null;
+        return ownerLimiter.allow(`${message.chat}|${sender}`) ? fromMood || word || fallback() : null;
     }
     if (mode === 'all') {
         if (!senderLimiter.allow(`${message.chat}|${sender}`)) return null;
         if (!chatLimiter.allow(message.chat)) return null;
-        return word || randomOf(pool(store));
+        return fromMood || word || fallback();
     }
     return null;
 };
 
 export default {
     name: 'autoresponder',
-    version: '2.1.0',
+    version: '2.2.0',
     author: 'NEO BOT',
-    description: 'Auto-replies and auto-reactions (every message, trigger words, or owners only), off by default.',
+    description: 'Auto-replies and mood-aware auto-reactions (smart, every message, trigger words, owners only), off by default.',
     commands: [
         command('reply', 'Automatic replies to messages (off by default).', replyCommand),
-        command('react', 'Automatic emoji reactions: every message, trigger words, or owners only.', reactCommand)
+        command('react', 'Mood-aware emoji reactions: smart, every message, trigger words, or owners only.', reactCommand)
     ],
     hooks: {
         async message({ sock, message }, api) {
@@ -390,7 +427,7 @@ export default {
             if (!hasContent(message) || message.text.startsWith(P)) return;
             const store = await open(api);
             const mode = reactModeFor(store, message.chat);
-            if (mode !== 'owner' && mode !== 'all') return;
+            if (!['owner', 'all', 'smart'].includes(mode)) return;
             const emoji = chooseReaction(store, mode, message, { isOwnerSender: true });
             if (emoji) message.react(emoji).catch((e) => api.logger.debug(`react failed: ${e?.message}`));
         }

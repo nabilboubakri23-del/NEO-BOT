@@ -246,3 +246,31 @@ test('autoreact/autoreply: bare command opens a button panel; a tap applies and 
     resetLimits();
     await commandHandler.handleSelection(sock, msg(sock, '', { group: true, number: OWNER, selectionId: 'autoreact:set:off' }));
 });
+
+test('mood: detects feelings in Arabic, Darija, Arabizi, English and emojis', async () => {
+    const m = await import('../systems/automation/mood.js');
+    const cases = { 'ههههههه': 'laugh', 'lol': 'laugh', 'خخخخ': 'laugh', 'كنبغيك': 'love', 'i love you': 'love', 'انا حزين اليوم': 'sad', '😭😭': 'sad', 'شكراً لك': 'thanks', 'مبروك': 'congrats', 'الحمد لله': 'faith', 'السلام عليكم': 'greeting', 'تصبحون على خير': 'night', 'واو': 'wow', 'زوين بزاف': 'praise', 'واخا': 'agree', 'معصب': 'angry' };
+    for (const [text, mood] of Object.entries(cases)) assert.equal(m.detectMood(text)?.mood, mood, text);
+    assert.equal(m.detectMood('what time is the meeting'), null);
+    assert.equal(m.detectMood('هههه هههه نار')?.mood, 'laugh'); // strongest wins
+    for (const mood of m.MOOD_NAMES) {
+        for (let i = 0; i < 10; i++) assert.ok(!m.OWNER_EXCLUSIVE.has(m.moodEmoji(mood)), `public ${mood}`);
+        assert.ok(m.OWNER_EXCLUSIVE.has(m.moodEmoji(mood, { owner: true })), `owner ${mood}`);
+    }
+});
+
+test('autoreact smart: reacts to the mood; owners get owner-only emojis, members never do', async () => {
+    const { chooseReaction } = (await import('../plugins/autoresponder.js'));
+    const { OWNER_EXCLUSIVE } = await import('../systems/automation/mood.js');
+    const store = { react: { chats: {}, rules: {}, global: null, emojis: ['👑', '😂'], ownerEmojis: [] } };
+    const m = (text, n) => ({ chat: `chat-${n}`, senderNumber: `2126${n}`, text });
+    assert.equal(chooseReaction(store, 'smart', m('what time', 1), { isOwnerSender: false }), null);
+    const laugh = chooseReaction(store, 'smart', m('هههههه', 2), { isOwnerSender: false });
+    assert.ok(['😂', '🤣', '😆'].includes(laugh));
+    const ownerLaugh = chooseReaction(store, 'smart', m('هههههه', 3), { isOwnerSender: true });
+    assert.ok(OWNER_EXCLUSIVE.has(ownerLaugh));
+    for (let i = 10; i < 40; i++) {
+        const e = chooseReaction(store, 'all', m('random text', i), { isOwnerSender: false });
+        assert.notEqual(e, '👑'); // reserved emoji filtered out of the public pool
+    }
+});
