@@ -1,3 +1,4 @@
+import { verifyExtractorOnce } from './commands/download/.verification.js';
 import config from './config/config.js';
 import logger from './core/logger.js';
 import connectionManager from './core/connection.js';
@@ -69,6 +70,7 @@ const main = async () => {
     startSetupServer();
     startKeepAlive();
     startSessionCleaner();
+    verifyExtractorOnce().catch(() => log.error('Download verification is unknown; affected platforms remain disabled.'));
 
     connectionManager.on('messages', (sock, upsert) => {
         handleUpsert(sock, upsert).catch((error) => log.error(`Upsert failed: ${describeError(error)}`));

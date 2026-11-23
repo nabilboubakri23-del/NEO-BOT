@@ -3,7 +3,7 @@ services:
     name: neo-bot
     runtime: node
     plan: free
-    buildCommand: npm ci --omit=dev
+    buildCommand: npm ci --omit=dev && node scripts/install-downloader.mjs
     startCommand: node index.js
     healthCheckPath: /health
     autoDeploy: true

@@ -1,9 +1,10 @@
+import { extractMedia, deliverExtracted } from './.extractor.js';
+import { requireVerifiedExtractor } from './.verification.js';
 import { box } from '../../utils/formatter.js';
-import { UserError } from '../../utils/errors.js';
-import { assertUrl, cobaltDownload, deliverMedia, isCobaltConfigured, NOT_CONFIGURED } from './.lib.js';
+import { assertUrl } from './.lib.js';
 
 /**
- * Instagram downloads through the owner-configured cobalt-compatible backend:
+ * Instagram public-video downloads through the pinned local extractor:
  *   .instagram <link>   reel / post / video (first item of a carousel)
  * Only public posts can be downloaded.
  */
@@ -21,14 +22,10 @@ export default {
     cooldown: 30,
     minArgs: 1,
     async execute(sock, message, args) {
-        if (!isCobaltConfigured()) throw new UserError(NOT_CONFIGURED);
+        await requireVerifiedExtractor('instagram');
         const url = assertUrl(args[0], IG_HOSTS, 'Instagram link');
         await message.react?.('⏳');
-        const result = await cobaltDownload(url, { audio: false });
-        const caption = box('INSTAGRAM', [
-            '✅ Done.',
-            result.kind === 'picker' && result.items.length > 1 && `Post has ${result.items.length} items; sent the first.`
-        ].filter(Boolean));
-        await deliverMedia(sock, message, result, { caption });
+        const result = await extractMedia(url, 'instagram');
+        await deliverExtracted(sock, message, result, 'instagram', box('INSTAGRAM', ['✅ Done.']));
     }
 };

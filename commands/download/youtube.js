@@ -1,3 +1,5 @@
+import { extractMedia, deliverExtracted } from './.extractor.js';
+import { requireVerifiedExtractor } from './.verification.js';
 import { box } from '../../utils/formatter.js';
 import { UsageError, UserError } from '../../utils/errors.js';
 import { assertUrl, cobaltDownload, deliverMedia, isCobaltConfigured, NOT_CONFIGURED, youtubeSearch } from './.lib.js';
@@ -14,6 +16,11 @@ const YT_HOSTS = ['youtube.com', 'youtu.be', 'music.youtube.com'];
 
 const download = async (sock, message, url, audio) => {
     await message.react?.('⏳');
+    if (!audio) {
+        await requireVerifiedExtractor('youtube');
+        const result = await extractMedia(url, 'youtube');
+        return deliverExtracted(sock, message, result, 'youtube', box('YOUTUBE', ['✅ Done.']));
+    }
     const result = await cobaltDownload(url, { audio, quality: '720' });
     await deliverMedia(sock, message, result, { audio, caption: audio ? '' : box('YOUTUBE', ['✅ Done.']) });
 };
@@ -26,14 +33,13 @@ export const yt = {
     name: 'yt',
     aliases: ['youtube', 'ytdl', 'ytmp4', 'يوتيوب'],
     category: 'download',
-    description: 'Download a YouTube video (720p).',
+    description: 'Download a public YouTube video (up to 720p, source permitting).',
     usage: '<youtube link>',
     examples: ['yt https://youtu.be/dQw4w9WgXcQ'],
     permission: 'public',
     cooldown: 30,
     minArgs: 1,
     async execute(sock, message, args) {
-        guardConfigured();
         const url = assertUrl(args[0], YT_HOSTS, 'YouTube link');
         await download(sock, message, url, false);
     }

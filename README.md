@@ -85,9 +85,9 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 | `.tiktok <link>` (tt, تيكتوك) | 👤 everyone | TikTok video without watermark; works out of the box. |
 | `.mediafire <link>` (mf, ميديافاير) | 👤 everyone | File from a public MediaFire link. |
 | `.app <name> [n]` (apk, تطبيق) | 👤 everyone | Search Android apps by name (Aptoide store); `[n]` downloads match number n. Only apps that passed the store's malware screening can be downloaded (screening is re-checked at download time; it is not publisher verification or a safety guarantee). |
-| `.yt <link>` · `.ytmp3 <link>` (youtube, يوتيوب) | 👤 everyone | YouTube video (720p) / audio MP3. Needs the download backend. |
+| `.yt <link>` · `.ytmp3 <link>` (youtube, يوتيوب) | 👤 everyone | YouTube public video (up to 720p, often 360p without merging); enabled only after server verification. Audio MP3 still needs the optional backend. |
 | `.play <name>` (شغل) | 👤 everyone | Search YouTube by name, download the first result's audio. Needs the backend. |
-| `.instagram <link>` (insta, انستا) · `.facebook <link>` (fb, فيسبوك) | 👤 everyone | Public Instagram / Facebook videos. Need the backend. |
+| `.instagram <link>` (insta, انستا) · `.facebook <link>` (fb, فيسبوك) | 👤 everyone | Public Instagram / Facebook videos via a pinned local extractor, enabled separately after server verification. |
 | `.spotify <track link>` (سبوتيفاي) | 👤 everyone | Track as MP3 via a free third-party converter (not an official Spotify download); falls back to the download backend. |
 
 | **Games & levels** | | |
@@ -374,7 +374,7 @@ check and WhatsApp check are still needed after configuring the real host key.
 
 ## Download backend (optional)
 
-Commands that fetch media from YouTube, Instagram and Facebook use a [cobalt-compatible](https://github.com/imputnet/cobalt) download
+YouTube audio commands (.ytmp3 and .play) still use a [cobalt-compatible](https://github.com/imputnet/cobalt) download
 backend: set `DOWNLOAD_API_BASE` on the server (plus `DOWNLOAD_API_KEY` when the
 instance requires a key). TikTok, MediaFire and `.app` work without any backend.
 Every user URL is checked against a per-platform allowlist, and redirects are
@@ -414,3 +414,20 @@ Edits, captions, polls, documents and contact names are all scanned, so "send cl
 | 🛡️ Group protection | Group admins, Moderator+ | anti-link, anti-vCard, anti-profanity, anti-spam, warn limit, admin-only... |
 
 Flow: `.settings` → section → setting → ✅ ON / ⛔ OFF (or a value from a list). Text also works: `.settings off typing`, `.settings on antibad`, `.settings set antispam mute`, `.settings info <key>`, `.settings reset <key|all>` (owners). Every change re-checks permission on the server (forged or forwarded button ids do nothing) and is written to the audit log.
+
+### Local video extractor
+
+The Render build installs yt-dlp 2026.10.26 from its official Linux x64 release,
+checking a pinned SHA-256 before use. No new service is created. Video commands
+for YouTube, Instagram and Facebook stay off until a one-time runtime campaign
+retrieves a fixed public test video for that platform. Results are stored in the
+existing database; restarts do not repeat the campaign. Failed or interrupted
+checks remain disabled. Render checks do not run without the durable database.
+This verifies server retrieval, not WhatsApp delivery or every future URL.
+
+The extractor is a trusted executable, not an OS sandbox. It gets no bot secrets,
+plugins, user config or login cookies. Requests use a loopback proxy with host
+and checked-IP restrictions; extraction has a hard timeout, output limits and
+single-worker concurrency. Final media fetches keep the streamed size and type
+checks. YouTube MP3 and search-to-audio still require the optional backend; this
+change does not install ffmpeg or relabel M4A as MP3.
