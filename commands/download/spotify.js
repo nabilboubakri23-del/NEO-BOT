@@ -39,6 +39,7 @@ const home = async (sock, m) => {
         `   ${P()}spotify Shape of You Ed Sheeran`,
         '🔗 *By link*: paste a Spotify track link.',
         `   ${P()}spotify https://open.spotify.com/track/...`,
+        `🎵 *Sound sticker*: reply to a song with ${P()}ss`,
         '',
         'Or tap a button below, then just type.',
         'This menu expires in 5 minutes.'
