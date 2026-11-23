@@ -1,106 +1,245 @@
 import config from '../../config/config.js';
+import events from '../../core/events.js';
+import { child } from '../../core/logger.js';
 import { box } from '../../utils/formatter.js';
-import { UserError } from '../../utils/errors.js';
-import { sendButtons } from '../../systems/menus/interactiveMenu.js';
-import { sendSpotifyCarousel } from './.spotify-cards.js';
+import { UserError, describeError } from '../../utils/errors.js';
+import { sendButtons, sendListMenu } from '../../systems/menus/interactiveMenu.js';
+import { sendSpotifyCarousel, cardText } from './.spotify-cards.js';
 import { spotifySessions as sessions } from './.spotify-session.js';
-import { assertUrl, cobaltDownload, deliverMedia, downloadFile, isCobaltConfigured, MAX_MEDIA_BYTES, parseSpotifyTrack, sanitizeFilename, sendFile, spotifyDownload, spotifyInfo, youtubeSearch, spotifySearch } from './.lib.js';
+import { acquireAudio, classifyInput, searchTracks, toTrackUrl, trackInfo } from './.spotify-core.js';
 
-const SPOTIFY_HOSTS=['open.spotify.com'];
-const validTrack = input => {
- const url=assertUrl(input,SPOTIFY_HOSTS,'Spotify link');
- if(!/^[A-Za-z0-9]{22}$/.test(parseSpotifyTrack(url)||''))throw new UserError('Send a Spotify track link, not an album or playlist.');
- return url;
-};
-const audio = async(sock,message,url,session) => {
-        const check=()=>{if(session?.cancelled)throw new UserError('تم إلغاء طلب Spotify.');};
-        await message.react?.('⏳');
+/**
+ * .spotify — search Spotify by song name or download a track link.
+ *
+ *   .spotify                 guide + buttons: Search by name / Download by link / Cancel
+ *   .spotify <song name>     search, then pick a result (carousel or list)
+ *   .spotify <track link>    download directly (open.spotify.com, spotify.link, spotify:track:)
+ *   .spotify cancel          cancel the current menu or download
+ *
+ * After tapping "Search by name" or "Download by link", the user's next plain
+ * message (no prefix) is taken as the input. Audio comes from a third-party
+ * converter with YouTube/cobalt fallbacks; it is not an official Spotify download.
+ */
 
-        let converted;
-        try {
-            const track = await spotifyDownload(url);
-            const file = await downloadFile(track.url, { allowHosts: ['spotimate.app'], maxBytes: MAX_MEDIA_BYTES, expect: ['audio'] });
-            converted={track,file};
-        } catch (error) {
-            check();
-            if (!isCobaltConfigured()) throw error?.expose ? error : new UserError('⚠️ Could not download that Spotify track right now. Try again later.');
-        }
-        if(converted){
-            check();
-            return sendFile(sock,message,{kind:'audio',buffer:converted.file.buffer,mimetype:'audio/mpeg',fileName:`${sanitizeFilename(converted.track.title || 'spotify')}.mp3`});
-        }
+const log = child('spotify');
+const P = () => config.bot.prefix;
+const CANCEL_WORDS = /^(cancel|stop|back|exit|إلغاء|الغاء|رجوع|خروج)$/i;
+const INPUT_TAG = 'command:spotify:input';
 
-        const info = await spotifyInfo(url);
-        const title = info.title || 'Unknown track';
-        const ids = await youtubeSearch(`${title} audio`);
-        if (!ids.length) throw new UserError('⚠️ Could not find matching audio for that track.');
-        const result = await cobaltDownload(`https://www.youtube.com/watch?v=${ids[0]}`, { audio: true });
-        result.fileName = sanitizeFilename(title);
-        check();
-        await deliverMedia(sock, message, result, { audio: true });
-};
-const prefix=()=>config.bot.prefix;
-const home=async(sock,m)=>{
- const s=sessions.create(m);
- const body=box('SPOTIFY',['ابحث باسم الأغنية والفنان أو أرسل رابط أغنية Spotify.','اختر النتيجة الصحيحة قبل التحميل.','مثال: '+prefix()+'spotify Rick Astley Never Gonna Give You Up','التحويل عبر طرف ثالث، وليس تحميلا رسميا من Spotify.','القائمة تنتهي بعد 5 دقائق.']);
- return sendButtons(sock,m.chat,{title:'Spotify',body,buttons:[{type:'reply',text:'تحميل بالاسم',id:`spotify:name:${s.token}`},{type:'reply',text:'تحميل بالرابط',id:`spotify:link:${s.token}`},{type:'reply',text:'العودة / إلغاء',id:`spotify:cancel:${s.token}`}]},{quoted:m.raw,fallbackText:body+'\n'+prefix()+'spotify cancel'});
-};
-const resultPage=async(sock,m,s,index)=>{
- const t=s.tracks[index];
- if(!t)throw new UserError('نتيجة غير صالحة. افتح .spotify من جديد.');
- const body=box('SPOTIFY',[
-  `النتيجة ${index+1}/${s.tracks.length}`,
-  `الأغنية: ${t.title}`,`الفنان: ${t.artist || 'غير متاح'}`,
-  `الألبوم: ${t.album || 'غير متاح'}`,`المدة: ${t.duration || 'غير متاحة'}`,
-  'اضغط اسم الأغنية للتحميل. تنتهي النتائج بعد 5 دقائق.',
-  `${prefix()}spotify cancel للإلغاء`
- ]);
- const label=`${t.title} - ${t.artist}`;
- const buttons=[{type:'reply',text:label.slice(0,20),id:`spotify:pick:${s.token}:${index}`}];
- if(s.tracks.length>1)buttons.push({type:'reply',text:'النتيجة التالية',id:`spotify:page:${s.token}:${(index+1)%s.tracks.length}`});
- buttons.push({type:'reply',text:'رجوع / إلغاء',id:`spotify:cancel:${s.token}`});
- return sendButtons(sock,m.chat,{title:'Spotify',body,buttons},{quoted:m.raw,fallbackText:body+'\n'+prefix()+`spotify choose ${s.token} ${index+1}`});
-};
-const search=async(sock,m,query)=>sessions.run(m,'search',15_000,async()=>{
- const pending=sessions.create(m);
- const tracks=await spotifySearch(query);
- sessions.get(m,pending.token);
- if(!tracks.length)throw new UserError('لم أجد نتيجة. جرّب اسم الأغنية مع اسم الفنان.');
- const s=sessions.create(m,tracks);
- try{return await sendSpotifyCarousel(sock,m,s)}catch{
-  sessions.get(m,s.token);
-  await m.reply('تعذر إرسال بطاقات التمرير. سأعرض النتائج بأزرار التالي بدلا منها.');
-  return resultPage(sock,m,s,0);
- }
+const errorText = (error) => (error?.expose ? error.message : '⚠️ Something went wrong with Spotify. Try again.');
 
+// ── Screens ─────────────────────────────────────────────────────────────
+
+const home = async (sock, m) => {
+    const s = sessions.create(m);
+    const body = box('SPOTIFY', [
+        'Download any song from Spotify as MP3.',
+        '',
+        '🔎 *By name*: type the song (and artist).',
+        `   ${P()}spotify Shape of You Ed Sheeran`,
+        '🔗 *By link*: paste a Spotify track link.',
+        `   ${P()}spotify https://open.spotify.com/track/...`,
+        '',
+        'Or tap a button below, then just type.',
+        'This menu expires in 5 minutes.'
+    ]);
+    return sendButtons(sock, m.chat, {
+        title: 'Spotify Downloader',
+        body,
+        footer: 'Audio via third-party converters',
+        buttons: [
+            { type: 'reply', text: '🔎 Search by name', id: `spotify:name:${s.token}` },
+            { type: 'reply', text: '🔗 Download by link', id: `spotify:link:${s.token}` },
+            { type: 'reply', text: '↩️ Back / Cancel', id: `spotify:cancel:${s.token}` }
+        ]
+    }, { quoted: m.raw, fallbackText: `${body}\n\n${P()}spotify <song name | link>\n${P()}spotify cancel` });
+};
+
+const askInput = async (sock, m, token, mode) => {
+    sessions.expect(m, token, mode);
+    const body = mode === 'name'
+        ? box('SPOTIFY • BY NAME', ['Type the song name now, no command needed.', 'Adding the artist gives better results.', '', 'Example: Blinding Lights The Weeknd', 'Waiting 2 minutes.'])
+        : box('SPOTIFY • BY LINK', ['Paste the Spotify track link now, no command needed.', '', 'Example: https://open.spotify.com/track/...', 'Albums and playlists are not supported.', 'Waiting 2 minutes.']);
+    return sendButtons(sock, m.chat, {
+        title: 'Spotify',
+        body,
+        buttons: [
+            { type: 'reply', text: '↩️ Back', id: `spotify:home:${token}` },
+            { type: 'reply', text: '✖️ Cancel', id: `spotify:cancel:${token}` }
+        ]
+    }, { quoted: m.raw, fallbackText: `${body}\n${P()}spotify cancel` });
+};
+
+const sendResultList = (sock, m, s) => sendListMenu(sock, m.chat, {
+    title: 'Spotify results',
+    body: `Found ${s.tracks.length} songs. Open the list and choose one to download.\nResults expire in 5 minutes.`,
+    footer: 'NEO BOT • Spotify',
+    buttonText: 'Choose a song',
+    sections: [
+        {
+            title: 'Results',
+            rows: s.tracks.map((t, i) => ({
+                id: `spotify:pick:${s.token}:${i}`,
+                title: `${i + 1}. ${t.title}`.slice(0, 72),
+                description: [t.artist, t.duration].filter(Boolean).join(' • ').slice(0, 72)
+            }))
+        },
+        { title: 'Options', rows: [{ id: `spotify:cancel:${s.token}`, title: '✖️ Cancel', description: 'Close this search' }] }
+    ]
+}, {
+    quoted: m.raw,
+    fallbackText: box('SPOTIFY', [
+        ...s.tracks.map((t, i) => `${i + 1}. ${t.title} — ${t.artist || 'Unknown'} ${t.duration ? `(${t.duration})` : ''}`),
+        '',
+        `Reply: ${P()}spotify choose ${s.token} <number>`
+    ])
 });
-const select=async(sock,m,token,index)=>{
- const s=sessions.get(m,token);
- if(!/^\d+$/.test(String(index))||!s.tracks[Number(index)])throw new UserError('اختيار غير صالح. افتح .spotify من جديد.');
- if(s.used)throw new UserError('هذا الاختيار استعمل بالفعل. افتح .spotify من جديد.');
- const track=s.tracks[Number(index)];
- return sessions.run(m,'download',30_000,async()=>{s.used=true;try{return await audio(sock,m,validTrack(track.url),s)}finally{if(sessions.sessions.get(sessions.key(m))===s)sessions.cancel(m);}});
+
+// ── Actions ─────────────────────────────────────────────────────────────
+
+const search = (sock, m, query) => sessions.run(m, 'search', 4_000, async () => {
+    await m.react?.('🔎');
+    const tracks = await searchTracks(query);
+    if (!tracks.length) {
+        await m.react?.('❌');
+        throw new UserError(`No Spotify results for "${query.slice(0, 60)}". Try the song name with the artist.`);
+    }
+    const s = sessions.create(m, tracks);
+    try {
+        await sendSpotifyCarousel(sock, m, s);
+    } catch (error) {
+        log.debug(`Carousel failed, sending list: ${describeError(error)}`);
+        if (s.cancelled) return;
+        await sendResultList(sock, m, s);
+    }
+    await m.react?.('✅');
+});
+
+const deliver = async (sock, m, track, s, { asFile = false } = {}) => {
+    await m.react?.('⏳');
+    const status = await m.reply(`⏳ Downloading *${track.title}*${track.artist ? ` — ${track.artist}` : ''}...`).catch(() => null);
+    const update = (text) => (status?.key ? sock.sendMessage(m.chat, { text, edit: status.key }).catch(() => {}) : m.reply(text).catch(() => {}));
+    try {
+        const audio = await acquireAudio(track, { isCancelled: () => s.cancelled });
+        if (s.cancelled) throw new UserError('Spotify request cancelled.');
+        const content = asFile
+            ? { document: audio.buffer, mimetype: audio.mimetype, fileName: audio.fileName, caption: cardText(track) }
+            : {
+                audio: audio.buffer,
+                mimetype: audio.mimetype,
+                fileName: audio.fileName,
+                contextInfo: {
+                    externalAdReply: {
+                        title: track.title.slice(0, 80),
+                        body: [track.artist, track.album, track.duration].filter(Boolean).join(' • ').slice(0, 100),
+                        mediaType: 1,
+                        ...(track.cover ? { thumbnailUrl: track.cover } : {}),
+                        sourceUrl: track.url,
+                        renderLargerThumbnail: false
+                    }
+                }
+            };
+        await sock.sendMessage(m.chat, content, { quoted: m.raw });
+        await update(`✅ *${track.title}*${track.artist ? ` — ${track.artist}` : ''}`);
+        await m.react?.('✅');
+    } catch (error) {
+        await m.react?.('❌');
+        await update(`❌ ${errorText(error)}`);
+        if (!error?.expose) log.warn(`Spotify delivery failed: ${describeError(error)}`);
+    }
 };
+
+const downloadLink = (sock, m, text) => sessions.run(m, 'download', 8_000, async () => {
+    const s = sessions.create(m);
+    try {
+        await m.react?.('🔗');
+        const url = await toTrackUrl(text);
+        const track = await trackInfo(url);
+        if (s.cancelled) return;
+        await deliver(sock, m, track, s);
+    } finally {
+        if (sessions.peek(m) === s) sessions.cancel(m);
+    }
+});
+
+const select = async (sock, m, token, index, asFile = false) => {
+    const s = sessions.get(m, token);
+    const i = Number(index);
+    if (!/^\d+$/.test(String(index)) || !s.tracks[i]) throw new UserError('Invalid choice. Send .spotify again.');
+    if (sessions.isBusy(m)) throw new UserError('Your Spotify download is still running. Wait for it to finish.');
+    if (s.used) throw new UserError('That result was already downloaded. Search again to pick another song.');
+    return sessions.run(m, 'download', 8_000, async () => {
+        s.used = true;
+        try {
+            await deliver(sock, m, s.tracks[i], s, { asFile });
+        } finally {
+            if (sessions.peek(m) === s) sessions.cancel(m);
+        }
+    });
+};
+
+const cancel = (m) => {
+    const had = sessions.cancel(m);
+    return m.reply(had ? '✖️ Spotify cancelled.' : 'Nothing to cancel. Send .spotify to start.');
+};
+
+/** Routes any text: a link downloads, anything else searches by name. */
+const handleInput = (sock, m, text) => {
+    const kind = classifyInput(text).kind;
+    if (kind === 'name') return search(sock, m, text);
+    return downloadLink(sock, m, text);
+};
+
+// ── Typed input after "Search by name" / "Download by link" ─────────────
+
+const onPlainMessage = ({ sock, message: m }) => {
+    const text = String(m?.text || '').trim();
+    if (!text || m.selectionId || text.startsWith(P())) return undefined;
+    const waiting = sessions.takeAwaiting(m);
+    if (!waiting) return undefined;
+    // Never block the message pipeline: the job runs in the background.
+    const job = CANCEL_WORDS.test(text) ? cancel(m) : handleInput(sock, m, text.slice(0, 300));
+    Promise.resolve(job).catch((error) => m.reply(`❌ ${errorText(error)}`).catch(() => {}));
+    return undefined;
+};
+
+events.offTag(INPUT_TAG); // hot reload safe: one listener per event
+events.on('message', onPlainMessage, { tag: INPUT_TAG });
+events.on('message:self', onPlainMessage, { tag: INPUT_TAG });
+
+// ── Command ─────────────────────────────────────────────────────────────
+
 export default {
- name:'spotify',aliases:['سبوتيفاي'],category:'download',permission:'public',
- description:'Search by song name, choose a track, or download a Spotify track link via a third-party converter.',
- usage:'[song name | track link | cancel]',examples:['spotify','spotify Rick Astley Never Gonna Give You Up'],
- cooldown:2,minArgs:0,
- async execute(sock,m,args,ctx={}){
-  const input=(ctx.argsText||args.join(' ')).trim();
-  if(!input)return home(sock,m);
-  if(/^(cancel|back|إلغاء|الغاء|رجوع)$/i.test(input)){sessions.cancel(m);return m.reply('تم إلغاء طلب Spotify. إذا بدأ إرسال الملف بالفعل فلا يمكن سحبه.');}
-  if(args[0]==='choose')return select(sock,m,args[1],/^\d+$/.test(args[2]||'')?Number(args[2])-1:'invalid');
-  if(/^https?:|www\./i.test(input)){const url=validTrack(input);return sessions.run(m,'download',30_000,async()=>{const s=sessions.create(m);try{return await audio(sock,m,url,s)}finally{if(sessions.sessions.get(sessions.key(m))===s)sessions.cancel(m);}});}
-  return search(sock,m,input);
- },
- async onSelect(sock,m,parts){
-  const[action,token,index]=parts;const session=sessions.get(m,token);
-  if(action==='page'){sessions.rate(m,'page',1000);if(!/^\d+$/.test(index||''))throw new UserError('اختيار غير صالح.');return resultPage(sock,m,session,Number(index));}
-  if(action==='cancel'){sessions.cancel(m);return m.reply('تم إلغاء طلب Spotify. إذا بدأ إرسال الملف بالفعل فلا يمكن سحبه.');}
-  if(action==='home')return home(sock,m);
-  if(action==='pick')return select(sock,m,token,index);
-  if(action==='name'||action==='link')return sendButtons(sock,m.chat,{title:'Spotify',body:action==='name'?`أرسل اسم الأغنية مع الأمر:\n${prefix()}spotify اسم الأغنية - الفنان`:`أرسل رابط الأغنية مع الأمر:\n${prefix()}spotify https://open.spotify.com/track/...`,buttons:[{type:'reply',text:'رجوع',id:`spotify:home:${token}`},{type:'reply',text:'إلغاء',id:`spotify:cancel:${token}`}]},{quoted:m.raw});
-  throw new UserError('اختيار غير صالح. افتح .spotify من جديد.');
- }
+    name: 'spotify',
+    aliases: ['sp', 'spot', 'سبوتيفاي'],
+    category: 'download',
+    permission: 'public',
+    description: 'Download songs from Spotify by name or track link, with result cards.',
+    usage: '[song name | track link | cancel]',
+    examples: ['spotify', 'spotify Shape of You Ed Sheeran', 'spotify https://open.spotify.com/track/7qiZfU4dY1lWllzX7mPBI3'],
+    cooldown: 2,
+    minArgs: 0,
+
+    async execute(sock, m, args, ctx = {}) {
+        const input = (ctx.argsText || args.join(' ')).trim();
+        if (!input) return home(sock, m);
+        if (CANCEL_WORDS.test(input)) return cancel(m);
+        if (args[0] === 'choose') return select(sock, m, args[1], /^\d+$/.test(args[2] || '') ? Number(args[2]) - 1 : 'invalid');
+        return handleInput(sock, m, input.slice(0, 300));
+    },
+
+    async onSelect(sock, m, parts) {
+        const [action, token, index] = parts;
+        if (action === 'cancel') {
+            const current = sessions.peek(m);
+            if (current && current.token !== token) throw new UserError('This Spotify menu expired. Use the newest one or send .spotify again.');
+            return cancel(m);
+        }
+        if (action === 'home') { sessions.get(m, token); return home(sock, m); }
+        if (action === 'name' || action === 'link') return askInput(sock, m, token, action);
+        if (action === 'pick' || action === 'file') return select(sock, m, token, index, action === 'file');
+        throw new UserError('Invalid choice. Send .spotify again.');
+    }
 };
+
+export { onPlainMessage };

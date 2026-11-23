@@ -1,39 +1,73 @@
-import {Carousel, prepareWAMessageMedia} from 'baileys';
-import {downloadFile} from './.lib.js';
+import { readFile, readdir } from 'node:fs/promises';
+import path from 'node:path';
+import { Carousel, prepareWAMessageMedia } from 'baileys';
+import { downloadFile } from './.lib.js';
+import { withTimeout } from './.spotify-core.js';
 
-export const spotifyCarousel = (sock,session,images) => new Carousel(sock)
- .setBody('نتائج Spotify: مرر يمينا أو يسارا واختر الأغنية. التحويل عبر طرف ثالث، وليس تحميلا رسميا. تنتهي النتائج بعد 5 دقائق.')
- .setFooter('Spotify • اختر الأغنية الصحيحة')
- .addCard(session.tracks.map((t,i)=>({
-  header:{title:t.title,hasMediaAttachment:true,imageMessage:images[i]},
-  body:{text:`${t.title}\nالفنان: ${t.artist || 'غير متاح'}\nالألبوم: ${t.album || 'غير متاح'}\nالمدة: ${t.duration || 'غير متاحة'}`},
-  nativeFlowMessage:{buttons:[
-   {name:'quick_reply',buttonParamsJson:JSON.stringify({display_text:'تحميل',id:`spotify:pick:${session.token}:${i}`})},
-   {name:'cta_url',buttonParamsJson:JSON.stringify({display_text:'فتح في Spotify',url:t.url,merchant_url:t.url})},
-   {name:'quick_reply',buttonParamsJson:JSON.stringify({display_text:'رجوع / إلغاء',id:`spotify:cancel:${session.token}`})}
-  ]}
- })));
+/**
+ * Spotify result cards: a swipeable carousel, one card per track with its cover.
+ * Covers are fetched and uploaded in parallel under one deadline; a missing or
+ * slow cover is replaced by a local picture so the carousel never waits forever.
+ */
 
-const uploadCover=async(buffer,upload)=>{
- let timer;
- try{return await Promise.race([prepareWAMessageMedia({image:buffer},{upload}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Cover upload timed out')),20_000)})]);}
- finally{clearTimeout(timer);}
+const COVER_DEADLINE_MS = 12_000;
+const THUMBS = path.resolve('assets/thumbs');
+let fallbackCover;
+
+const localCover = async () => {
+    if (fallbackCover !== undefined) return fallbackCover;
+    try {
+        const file = (await readdir(THUMBS)).find((f) => /\.jpe?g$/i.test(f));
+        fallbackCover = file ? await readFile(path.join(THUMBS, file)) : null;
+    } catch { fallbackCover = null; }
+    return fallbackCover;
 };
 
-export const sendSpotifyCarousel=async(sock,message,session)=>{
- const images=[];
- // Sequential cover retrieval keeps peak memory and upload pressure bounded.
- for(const track of session.tracks){
-  if(session.cancelled)throw new Error('Session cancelled');
-  const cover=await downloadFile(track.cover,{allowHosts:['i.scdn.co'],maxBytes:1024*1024,expect:['image']});
-  const uploaded=await uploadCover(cover.buffer,sock.waUploadToServer);
-  if(!uploaded.imageMessage)throw new Error('Cover upload failed');
-  images.push(uploaded.imageMessage);
- }
- if(session.cancelled)throw new Error('Session cancelled');
- const builder=spotifyCarousel(sock,session,images);
- const msg=builder.build(message.chat,{quoted:message.raw,userJid:sock.user?.id});
- // As in existing menu helper, relay directly to avoid duplicate biz nodes.
- await sock.relayMessage(msg.key.remoteJid,msg.message,{messageId:msg.key.id});
- return msg;
+export const cardText = (t) => [
+    `🎵 ${t.title}`,
+    `👤 ${t.artist || 'Unknown artist'}`,
+    t.album ? `💿 ${t.album}` : null,
+    t.duration ? `⏱️ ${t.duration}` : null
+].filter(Boolean).join('\n');
+
+export const spotifyCarousel = (sock, session, images) => new Carousel(sock)
+    .setBody(`*Spotify results* (${session.tracks.length})\nSwipe the cards and tap *Download* on the right song.\nResults expire in 5 minutes.`)
+    .setFooter('NEO BOT • Spotify')
+    .addCard(session.tracks.map((t, i) => ({
+        header: { title: t.title, hasMediaAttachment: true, imageMessage: images[i] },
+        body: { text: cardText(t) },
+        nativeFlowMessage: {
+            buttons: [
+                { name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: '⬇️ Download', id: `spotify:pick:${session.token}:${i}` }) },
+                { name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: '📄 As file', id: `spotify:file:${session.token}:${i}` }) },
+                { name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: '✖️ Cancel', id: `spotify:cancel:${session.token}` }) }
+            ]
+        }
+    })));
+
+const coverFor = async (track) => {
+    if (track.cover) {
+        try {
+            const file = await downloadFile(track.cover, { allowHosts: ['i.scdn.co'], maxBytes: 1024 * 1024, expect: ['image'] });
+            return file.buffer;
+        } catch { /* use the local picture */ }
+    }
+    return localCover();
+};
+
+const uploadAll = async (sock, tracks) => Promise.all(tracks.map(async (track) => {
+    const buffer = await coverFor(track);
+    if (!buffer) throw new Error('No cover available');
+    const media = await prepareWAMessageMedia({ image: buffer }, { upload: sock.waUploadToServer });
+    if (!media?.imageMessage) throw new Error('Cover upload failed');
+    return media.imageMessage;
+}));
+
+export const sendSpotifyCarousel = async (sock, message, session) => {
+    const images = await withTimeout(uploadAll(sock, session.tracks), COVER_DEADLINE_MS, 'Cover upload timed out');
+    if (session.cancelled) throw new Error('Session cancelled');
+    const msg = spotifyCarousel(sock, session, images).build(message.chat, { quoted: message.raw, userJid: sock.user?.id });
+    // Relay directly (same reason as the menu helper: avoid a duplicate <biz> node).
+    await sock.relayMessage(msg.key.remoteJid, msg.message, { messageId: msg.key.id });
+    return msg;
 };
