@@ -72,7 +72,7 @@ const askInput = async (sock, m, token, mode) => {
 
 const sendResultList = (sock, m, s) => sendListMenu(sock, m.chat, {
     title: 'Spotify results',
-    body: `Found ${s.tracks.length} songs. Open the list and choose one to download.\nResults expire in 5 minutes.`,
+    body: box('SPOTIFY RESULTS', s.tracks.map((t, i) => `${i + 1}. ${t.title} — ${t.artist || 'Unknown'}${t.duration ? ` (${t.duration})` : ''}`).concat(['', 'Tap *Choose a song* and pick one.', 'Results expire in 5 minutes.'])),
     footer: 'NEO BOT • Spotify',
     buttonText: 'Choose a song',
     sections: [
@@ -83,6 +83,10 @@ const sendResultList = (sock, m, s) => sendListMenu(sock, m.chat, {
                 title: `${i + 1}. ${t.title}`.slice(0, 72),
                 description: [t.artist, t.duration].filter(Boolean).join(' • ').slice(0, 72)
             }))
+        },
+        {
+            title: 'Download as file (MP3 document)',
+            rows: s.tracks.map((t, i) => ({ id: `spotify:file:${s.token}:${i}`, title: `📄 ${i + 1}. ${t.title}`.slice(0, 72), description: t.artist ? t.artist.slice(0, 72) : '' }))
         },
         { title: 'Options', rows: [{ id: `spotify:cancel:${s.token}`, title: '✖️ Cancel', description: 'Close this search' }] }
     ]
@@ -105,13 +109,19 @@ const search = (sock, m, query) => sessions.run(m, 'search', 4_000, async () => 
         throw new UserError(`No Spotify results for "${query.slice(0, 60)}". Try the song name with the artist.`);
     }
     const s = sessions.create(m, tracks);
-    try {
-        await sendSpotifyCarousel(sock, m, s);
-    } catch (error) {
-        log.debug(`Carousel failed, sending list: ${describeError(error)}`);
-        if (s.cancelled) return;
-        await sendResultList(sock, m, s);
+    // The list menu is the reliable default: WhatsApp silently drops carousels on some
+    // accounts (relay succeeds, nothing shows). Carousel is opt-in via SPOTIFY_CAROUSEL=on.
+    if (process.env.SPOTIFY_CAROUSEL === 'on') {
+        try {
+            await sendSpotifyCarousel(sock, m, s);
+            await m.react?.('✅');
+            return;
+        } catch (error) {
+            log.debug(`Carousel failed, sending list: ${describeError(error)}`);
+            if (s.cancelled) return;
+        }
     }
+    await sendResultList(sock, m, s);
     await m.react?.('✅');
 });
 
