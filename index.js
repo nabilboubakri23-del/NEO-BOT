@@ -11,7 +11,8 @@ import { startSessionCleaner, stopSessionCleaner } from './systems/session/sessi
 import { assertEncryptionReady } from './systems/security/encryption.js';
 import { describeError } from './utils/errors.js';
 import { terminalFrame } from './utils/formatter.js';
-import { createClaimCode, loadOwners } from './systems/owners/ownerStore.js';
+import { createClaimCode, initOwners, loadOwners } from './systems/owners/ownerStore.js';
+import { applySavedChanges } from './systems/devtools/persistentFiles.js';
 import docStore from './systems/database/docStore.js';
 import { loadSettings } from './systems/settings/settingsStore.js';
 import { loadUsers } from './systems/users/userStore.js';
@@ -58,6 +59,8 @@ const main = async () => {
     assertEncryptionReady();
     loadOwners();
     await docStore.init();
+    await initOwners(); // owners live in the database: survive redeploys
+    await applySavedChanges().catch((error) => log.error(`Saved code changes not applied: ${describeError(error)}`)); // before commands load
     await Promise.all([loadSettings(), loadUsers(), loadStats(), loadPermissions(), loadModeration(), loadEconomy()]);
     installModerationGuard(); // before plugins, so removed messages never reach plugin hooks
     pluginManager.attach(commandHandler);

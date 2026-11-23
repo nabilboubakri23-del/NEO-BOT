@@ -2,6 +2,7 @@ import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 
 import path from 'node:path';
 import config from '../../config/config.js';
 import { ValidationError } from '../../utils/errors.js';
+import { popHistory, recordChange } from './persistentFiles.js';
 
 /**
  * DevTools workspace.
@@ -11,6 +12,7 @@ import { ValidationError } from '../../utils/errors.js';
  * - Paths are always resolved inside the project root (no "../" escapes).
  * - Secrets (.env, encrypted sessions) and internals (.git, node_modules) are hidden.
  * - Every overwrite keeps a backup; every delete moves the file to the trash.
+ * - Every change is also saved in the database, so it survives restarts and redeploys.
  */
 
 const ROOT = config.rootDir;
@@ -114,28 +116,32 @@ export const backup = async (relative) => {
 };
 
 /** Writes a file (creating folders), keeping a backup of the previous version. */
-export const writeText = async (input, content) => {
+export const writeText = async (input, content, by = '') => {
     const { absolute, relative } = resolveSafe(input);
     assertWritable(relative);
     if (Buffer.byteLength(content) > MAX_WRITE_BYTES) throw new ValidationError('Content is too large.');
+    const previous = (await exists(absolute)) ? await readFile(absolute, 'utf8') : null;
     const backupName = await backup(relative);
     await mkdir(path.dirname(absolute), { recursive: true });
     await writeFile(absolute, content, 'utf8');
-    return { relative, backupName, created: !backupName };
+    const persisted = await recordChange(relative, previous, content, by);
+    return { relative, backupName, created: previous === null, persisted };
 };
 
 /** Moves a file to the trash (never a hard delete). */
-export const trash = async (input) => {
+export const trash = async (input, by = '') => {
     const { absolute, relative } = resolveSafe(input);
     const info = await stat(absolute).catch(() => null);
     if (!info?.isFile()) throw new ValidationError(`File not found: ${relative}`);
+    const previous = info.size <= MAX_WRITE_BYTES ? await readFile(absolute, 'utf8') : null;
     await mkdir(TRASH_DIR, { recursive: true });
     const name = `${flatName(relative)}@${stamp()}`;
     await rename(absolute, path.join(TRASH_DIR, name)).catch(async () => {
         await copyFile(absolute, path.join(TRASH_DIR, name));
         await rm(absolute);
     });
-    return { relative, trashName: name };
+    const persisted = await recordChange(relative, previous, null, by);
+    return { relative, trashName: name, persisted };
 };
 
 /** Backups (newest first) for one file. */
@@ -157,7 +163,20 @@ export const restore = async (input) => {
         : (await readdir(TRASH_DIR).catch(() => [])).filter((n) => n.startsWith(prefix)).sort().reverse()[0];
 
     const source = latestBackup ? path.join(BACKUP_DIR, latestBackup) : trashed ? path.join(TRASH_DIR, trashed) : null;
-    if (!source) throw new ValidationError(`No backup found for ${relative}.`);
+    const previous = (await exists(absolute)) ? await readFile(absolute, 'utf8') : null;
+    if (!source) {
+        // Local backups are gone after a restart on Render: use the copy kept in the database.
+        const saved = await popHistory(relative);
+        if (!saved) throw new ValidationError(`No backup found for ${relative}.`);
+        if (saved.content === null) await rm(absolute, { force: true });
+        else {
+            await mkdir(path.dirname(absolute), { recursive: true });
+            await writeFile(absolute, saved.content, 'utf8');
+        }
+        await recordChange(relative, previous, saved.content, 'restore');
+        await popHistory(relative); // recordChange pushed the replaced version; keep stepping back
+        return { relative, from: 'database', deleted: saved.content === null };
+    }
 
     const content = await readFile(source, 'utf8');
     // The version being replaced goes to the trash, so repeated restores keep stepping back.
@@ -168,5 +187,6 @@ export const restore = async (input) => {
     await mkdir(path.dirname(absolute), { recursive: true });
     await writeFile(absolute, content, 'utf8');
     await rm(source); // consume it so repeated restores step further back
+    await recordChange(relative, previous, content, 'restore');
     return { relative, from: latestBackup ? 'backup' : 'trash' };
 };

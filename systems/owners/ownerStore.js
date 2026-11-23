@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import config from '../../config/config.js';
+import docStore from '../database/docStore.js';
 
 /**
  * Owner registry, kept in its own file: data/owners.json
@@ -16,6 +17,8 @@ import config from '../../config/config.js';
  * - Only the main owner can add or remove admins.
  * - OWNER_NUMBERS from .env still works as extra main owners.
  * - Numbers are digits only (international, no "+"). A LID is used when WhatsApp hides the number.
+ * - The list is also kept in the database (document "owners", MongoDB on Render), which wins
+ *   at startup: Render wipes data/ on every deploy, so the file alone would forget new owners.
  */
 
 export const OWNERS_FILE = path.join(config.rootDir, 'data', 'owners.json');
@@ -36,11 +39,46 @@ const normalize = (raw) => {
     return data;
 };
 
-const save = async () => {
+const DOC = 'owners';
+let doc = null; // live database document once initOwners() ran
+
+const hasData = (data) => Boolean(data?.owner?.number || data?.owner?.lid || data?.admins?.length);
+
+const saveFile = async () => {
     await mkdir(path.dirname(OWNERS_FILE), { recursive: true });
     const tmp = `${OWNERS_FILE}.${process.pid}.tmp`;
     await writeFile(tmp, `${JSON.stringify(state, null, 4)}\n`, 'utf8');
     await rename(tmp, OWNERS_FILE); // atomic replace
+};
+
+const save = async () => {
+    if (doc) {
+        doc.owner = structuredClone(state.owner);
+        doc.admins = structuredClone(state.admins);
+        await docStore.saveNow(DOC); // at once: a redeploy may stop the process any second
+    }
+    await saveFile().catch(() => {}); // local copy (read-only or wiped disks are fine)
+};
+
+/**
+ * Loads the owners from the database (after docStore.init()). The database wins;
+ * an existing data/owners.json is migrated into it the first time.
+ */
+export const initOwners = async () => {
+    doc = await docStore.open(DOC, () => ({ owner: { number: '', lid: '' }, admins: [] }));
+    if (hasData(doc)) {
+        const fromDb = normalize(doc);
+        // Keep anyone only the local file knows (e.g. added before this version), then save both.
+        for (const admin of state.admins) {
+            const list = [admin.number, admin.lid].filter(Boolean);
+            if (!fromDb.admins.some((a) => matches(a, list)) && !matches(fromDb.owner, list)) fromDb.admins.push(admin);
+        }
+        if (!fromDb.owner.number && !fromDb.owner.lid) fromDb.owner = state.owner;
+        state = fromDb;
+    }
+    if (!state.owner.number && !state.owner.lid && config.owner.main) state.owner.number = config.owner.main;
+    if (hasData(state)) await save();
+    return state;
 };
 
 /** Loads (or reloads) the file. Called at startup and whenever the file may have changed. */
@@ -49,7 +87,7 @@ export const loadOwners = () => {
     // Seed the configured main owner when the file has none yet.
     if (!state.owner.number && !state.owner.lid && config.owner.main) {
         state.owner.number = config.owner.main;
-        save().catch(() => {});
+        saveFile().catch(() => {}); // the database copy is merged by initOwners()
     }
     return state;
 };

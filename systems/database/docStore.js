@@ -130,6 +130,14 @@ class DocStore {
         }
     }
 
+    /** Writes one document now (for data that must survive an abrupt stop). */
+    async saveNow(name) {
+        const entry = this.docs.get(name);
+        if (!entry) return;
+        entry.dirty = true;
+        await this.#write(name);
+    }
+
     /** Writes every pending document now (shutdown, tests). */
     async flush() {
         await Promise.allSettled([...this.docs.keys()].map((name) => this.#write(name)));

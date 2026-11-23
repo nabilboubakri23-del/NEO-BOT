@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { recordChange } from '../devtools/persistentFiles.js';
 import { pathToFileURL } from 'node:url';
 import config from '../../config/config.js';
 import { child } from '../../core/logger.js';
@@ -247,7 +248,9 @@ class PluginManager {
             const meta = (await import(`${pathToFileURL(tmp).href}?v=${Date.now()}`)).default;
             const problems = PluginManager.validate(meta);
             if (problems.length) throw new Error(problems.join(' '));
+            const previous = await (await import('node:fs/promises')).readFile(target, 'utf8').catch(() => null);
             await rename(tmp, target);
+            await recordChange(path.relative(config.rootDir, target), previous, code, 'plugin install'); // survives redeploys
             await this.load();
             return { name: meta.name.toLowerCase(), file: fileName, risks };
         } catch (error) {
@@ -264,8 +267,10 @@ class PluginManager {
         const file = path.join(this.dir, record.file);
         if (!file.startsWith(this.dir + path.sep)) throw new Error('Invalid plugin path.');
         await this.#deactivate(name);
-        const { unlink } = await import('node:fs/promises');
+        const { unlink, readFile } = await import('node:fs/promises');
+        const previous = await readFile(file, 'utf8').catch(() => null);
         await unlink(file).catch(() => {});
+        if (previous !== null) await recordChange(path.relative(config.rootDir, file), previous, null, 'plugin remove');
         this.disabled.delete(name);
         this.#persistDisabled();
         await this.load();

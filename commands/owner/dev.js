@@ -5,6 +5,8 @@ import commandHandler from '../../core/commandHandler.js';
 import { child } from '../../core/logger.js';
 import { sendButtons, sendListMenu } from '../../systems/menus/interactiveMenu.js';
 import * as ws from '../../systems/devtools/workspace.js';
+import { forget, listChanges } from '../../systems/devtools/persistentFiles.js';
+import docStore from '../../systems/database/docStore.js';
 import { checkCommandModule, checkSyntax, isValidCommandName } from '../../systems/devtools/codeValidator.js';
 import { readCode } from '../../systems/devtools/codeInput.js';
 import { rankBadge } from '../../systems/permissions/permissions.js';
@@ -66,6 +68,18 @@ const resolveTarget = async (input) => {
     // Not found anywhere: a bare name means a command file (e.g. to restore a deleted one).
     return isValidCommandName(name) ? commandFile(name) : cleaned;
 };
+
+const by = (message) => message.senderNumber || message.senderLid || '';
+
+/** One line telling where the change is kept. */
+const savedLine = (persisted) =>
+    !persisted
+        ? '⚠️ Not saved to the database: lost on the next restart.'
+        : docStore.kind === 'mongodb'
+          ? '💾 Saved permanently (survives restarts and redeploys).'
+          : '💾 Saved on this device (no MongoDB: other hosts will not get it).';
+
+const CATEGORIES = new Set(['ai', 'economy', 'group', 'media', 'owner', 'system', 'tools', 'fun', 'games', 'automation', 'knowledge']);
 
 const formatSize = (bytes) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`);
 
@@ -142,6 +156,8 @@ const actions = {
                     `Commands loaded: ${commandHandler.commands.size}`,
                     `Node: ${process.version}`,
                     `Uptime: ${uptime}s`,
+                    `Storage: ${docStore.kind === 'mongodb' ? 'MongoDB 💾' : 'local files'}`,
+                    `Saved changes: ${(await listChanges().catch(() => [])).filter((c) => c.state !== 'original').length}`,
                     '',
                     'Owner only. Pick a tool below,',
                     `or type ${CMD} help.`
@@ -162,7 +178,14 @@ const actions = {
                         rows: [
                             { id: `${CMD} template`, title: 'NEW COMMAND', description: 'Get a ready command template.' },
                             { id: `${CMD} del`, title: 'DELETE COMMAND', description: 'Pick a command to delete.' },
-                            { id: `${CMD} reload`, title: 'RELOAD', description: 'Hot-reload all commands.' },
+                            { id: `${CMD} reload`, title: 'RELOAD', description: 'Hot-reload all commands.' }
+                        ]
+                    },
+                    {
+                        title: 'KEEP',
+                        rows: [
+                            { id: `${CMD} saved`, title: 'SAVED CHANGES', description: 'What survives restarts, and its state.' },
+                            { id: `${CMD} restart`, title: 'RESTART', description: 'Restart to apply core changes.' },
                             { id: `${CMD} help`, title: 'HELP', description: 'Every dev sub-command.' }
                         ]
                     }
@@ -279,12 +302,13 @@ const actions = {
         await message.reply(panel('NEW COMMAND', ['Copy the message above, edit the code,', 'and send it back to create the command.']));
     },
 
-    async add(sock, message, [name]) {
+    async add(sock, message, [name, category]) {
         if (!isValidCommandName(name)) {
-            return message.reply(panel('DEV', [`Usage: ${CMD} add <name>`, '<code on the next lines>', '', 'Name: a-z, 0-9, _ or -']));
+            return message.reply(panel('DEV', [`Usage: ${CMD} add <name> [folder]`, '<code on the next lines>', '', 'Name: a-z, 0-9, _ or -', `Folder: ${[...CATEGORIES].join(' ')}`]));
         }
         name = name.toLowerCase();
-        const relative = commandFile(name);
+        const folder = category && CATEGORIES.has(category.toLowerCase()) ? category.toLowerCase() : '';
+        const relative = folder ? `${COMMANDS_DIR}/${folder}/${name}.js` : commandFile(name);
         if (await ws.fileExists(relative)) {
             return message.reply(panel('DEV', [`${relative} already exists.`, `Use ${CMD} edit ${name} to replace it.`]));
         }
@@ -299,10 +323,10 @@ const actions = {
         const conflict = findConflict(check.command, relative);
         if (conflict) return message.reply(panel('REJECTED', [conflict]));
 
-        await ws.writeText(relative, input.code);
+        const written = await ws.writeText(relative, input.code, by(message));
         log.warn({ file: relative }, 'Command added remotely.');
         const summary = await reloadSummary();
-        await message.reply(panel('COMMAND ADDED', [`${P}${name} is live.`, `File: ${relative}`, `Source: ${input.source}`, '', ...summary]));
+        await message.reply(panel('COMMAND ADDED', [`${P}${name} is live.`, `File: ${relative}`, `Source: ${input.source}`, savedLine(written.persisted), '', ...summary]));
     },
 
     async edit(sock, message, [target]) {
@@ -350,9 +374,9 @@ const actions = {
             );
         }
 
-        await ws.trash(relative);
+        const removed = await ws.trash(relative, by(message));
         log.warn({ file: relative }, 'File deleted remotely.');
-        const lines = [`${relative} moved to trash.`, `Undo: ${CMD} restore ${relative}`];
+        const lines = [`${relative} moved to trash.`, savedLine(removed.persisted), `Undo: ${CMD} restore ${relative}`];
         if (isCommandPath(relative)) lines.push('', ...(await reloadSummary()));
         await message.reply(panel('DELETED', lines));
     },
@@ -364,7 +388,7 @@ const actions = {
     async restore(sock, message, [target]) {
         if (!target) return message.reply(panel('DEV', [`Usage: ${CMD} restore <file|command>`]));
         const result = await ws.restore(await resolveTarget(target));
-        const lines = [`${result.relative} restored from ${result.from}.`];
+        const lines = [result.deleted ? `${result.relative} removed again (it did not exist before).` : `${result.relative} restored from ${result.from}.`, savedLine(true)];
         if (isCommandPath(result.relative)) lines.push('', ...(await reloadSummary()));
         else lines.push('', 'Restart the bot to apply core changes.');
         await message.reply(panel('RESTORED', lines));
@@ -380,6 +404,55 @@ const actions = {
 
     async reload(sock, message) {
         await message.reply(panel('RELOADED', await reloadSummary()));
+    },
+
+    /** Changes made from WhatsApp that are kept in the database and re-applied on every start. */
+    async saved(sock, message) {
+        const list = (await listChanges()).filter((c) => c.state !== 'original');
+        const icon = { applied: '✅', pending: '⏳', conflict: '⚠️' };
+        const lines = [
+            `Storage: ${docStore.kind === 'mongodb' ? 'MongoDB (permanent)' : 'local files only'}`,
+            `Changes kept: ${list.length}`,
+            ''
+        ];
+        for (const c of list.slice(0, 30)) lines.push(`${icon[c.state]} ${c.deleted ? '🗑️ ' : ''}${c.file}`, `   ${c.at.slice(0, 16).replace('T', ' ')} UTC${c.by ? ` · ${c.by}` : ''}`);
+        if (!list.length) lines.push('Nothing changed from WhatsApp yet.');
+        if (list.some((c) => c.state === 'conflict')) {
+            lines.push('', '⚠️ = GitHub has a newer version of that file,', 'so the GitHub one is used. Re-apply yours with', `${CMD} edit, or drop it: ${CMD} forget <file>`);
+        }
+        lines.push('', `Drop a change: ${CMD} forget <file>`, 'Tip: copy finished files into GitHub (dev get)', 'so they become part of the code.');
+        await message.reply(panel('SAVED CHANGES', lines));
+    },
+
+    async forget(sock, message, [target]) {
+        if (!target) return message.reply(panel('DEV', [`Usage: ${CMD} forget <file|cmd>`, 'The GitHub version returns on the next restart.']));
+        const relative = ws.resolveSafe(await resolveTarget(target)).relative;
+        const done = await forget(relative);
+        await message.reply(panel('DEV', done ? [`${relative}: saved change dropped.`, 'The GitHub version returns on the next restart.'] : [`No saved change for ${relative}.`]));
+    },
+
+    async restart(sock, message, [flag]) {
+        if (flag !== '--yes') {
+            const confirm = `${CMD} restart --yes`;
+            return sendButtons(
+                sock,
+                message.chat,
+                {
+                    title: 'RESTART',
+                    body: panel('RESTART', ['Restarts the bot process (applies core', 'file changes). Render starts it again', 'by itself; on Termux run npm start again.', '', 'To confirm, tap RESTART or send:', confirm]),
+                    footer: config.bot.footer,
+                    buttons: [
+                        { type: 'reply', text: 'RESTART', id: confirm },
+                        { type: 'reply', text: 'CANCEL', id: `${CMD} cancel` }
+                    ]
+                },
+                { quoted: message.raw, fallbackText: panel('RESTART', ['To confirm, send:', confirm]) }
+            );
+        }
+        await message.reply(panel('RESTART', ['Restarting… back in about a minute.']));
+        log.warn({ by: by(message) }, 'Restart requested from WhatsApp.');
+        await docStore.flush().catch(() => {});
+        setTimeout(() => process.kill(process.pid, 'SIGTERM'), 1500).unref?.();
     }
 };
 
@@ -420,11 +493,11 @@ const writeChecked = async (sock, message, relative, title) => {
         if (!check.ok) return message.reply(panel('REJECTED', ['Nothing was saved.', '', code(check.error)]));
     }
 
-    const result = await ws.writeText(relative, input.code);
+    const result = await ws.writeText(relative, input.code, by(message));
     log.warn({ file: relative }, 'File written remotely.');
-    const lines = [`File: ${relative}`, `Source: ${input.source}`, result.backupName ? 'Previous version backed up.' : 'New file.'];
+    const lines = [`File: ${relative}`, `Source: ${input.source}`, result.created ? 'New file.' : 'Previous version backed up.', savedLine(result.persisted)];
     if (isCommandPath(relative)) lines.push('', ...(await reloadSummary()));
-    else if (/\.(m?js|json)$/.test(relative)) lines.push('', 'Restart the bot to apply core changes.');
+    else if (/\.(m?js|json)$/.test(relative)) lines.push('', `Core file: apply with ${CMD} restart`);
     await message.reply(panel(title, lines));
 };
 
@@ -441,7 +514,7 @@ const helpText = () =>
         '',
         '[ BUILD ]',
         `${CMD} template [name]  → command template`,
-        `${CMD} add <name>  + code  → new command`,
+        `${CMD} add <name> [folder]  + code  → new command`,
         `${CMD} edit <file|cmd>  + code  → replace`,
         `${CMD} new <path>  + code  → new file`,
         `${CMD} del  → pick a command to delete`,
@@ -450,13 +523,19 @@ const helpText = () =>
         `${CMD} backups <file|cmd>  → versions`,
         `${CMD} reload  → hot-reload commands`,
         '',
+        '[ KEEP ]',
+        `${CMD} saved  → changes kept across restarts`,
+        `${CMD} forget <file|cmd>  → drop a kept change`,
+        `${CMD} restart  → restart (core changes)`,
+        '',
         'Code goes on the lines under the command,',
         'in a .js file sent with the command as caption,',
         'or in a message you reply to.',
-        'Every change is checked before saving.'
+        'Every change is checked before saving',
+        'and kept in the database across redeploys.'
     ]);
 
-const ALIASES = { list: 'ls', dir: 'ls', read: 'cat', view: 'cat', show: 'cat', download: 'get', rm: 'del', delete: 'del', remove: 'del', delcmd: 'del', rmcmd: 'del', create: 'new', undo: 'restore', search: 'find', commands: 'cmds' };
+const ALIASES = { sync: 'saved', changes: 'saved', status: 'saved', reboot: 'restart', drop: 'forget', list: 'ls', dir: 'ls', read: 'cat', view: 'cat', show: 'cat', download: 'get', rm: 'del', delete: 'del', remove: 'del', delcmd: 'del', rmcmd: 'del', create: 'new', undo: 'restore', search: 'find', commands: 'cmds' };
 
 export default {
     name: 'dev',
