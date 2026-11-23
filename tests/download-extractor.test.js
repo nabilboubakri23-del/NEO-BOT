@@ -2,6 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import dns from 'node:dns/promises';
+import {mkdtemp, rm} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {spawnSync} from 'node:child_process';
 import { allowedHost, extractorArgs, startExtractorProxy } from '../commands/download/.extractor.js';
 
 test('extractor args disable ambient code/config and terminate flags before input', () => {
@@ -29,12 +33,29 @@ test('verification gate stays closed for unknown, checking and failed states', a
  const {MemoryBackend}=await import('./helpers.js');
  await store.init(new MemoryBackend());
  const {requireVerifiedExtractor}=await import('../commands/download/.verification.js');
+ const temporary=await mkdtemp(path.join(os.tmpdir(),'download-preflight-'));
+ try {
+  const source=new URL('../commands/download/.verification.js',import.meta.url).href;
+  const db=new URL('../systems/database/docStore.js',import.meta.url).href;
+  const helpers=new URL('./helpers.js',import.meta.url).href;
+  const script=`import assert from 'node:assert/strict';
+   const store=(await import(${JSON.stringify(db)})).default;
+   const {MemoryBackend}=await import(${JSON.stringify(helpers)});
+   await store.init(new MemoryBackend());
+   const {verifyExtractorOnce}=await import(${JSON.stringify(source)});
+   assert.deepEqual(await verifyExtractorOnce(),{});
+   const pending=await store.open('downloadVerification');
+   assert.deepEqual(pending.campaigns['yt-dlp-2026.10.26-adapter-2'],{});`;
+  const result=spawnSync(process.execPath,['--input-type=module','-e',script],{cwd:temporary,encoding:'utf8',timeout:5000,env:{PATH:process.env.PATH}});
+  assert.equal(result.status,0,result.stdout+result.stderr);
+  assert.match(result.stdout,/setup pending/);
+ }finally{await rm(temporary,{recursive:true,force:true});}
  await assert.rejects(()=>requireVerifiedExtractor('youtube'),/not enabled/);
  const doc=await store.open('downloadVerification');
- doc.campaigns={'yt-dlp-2026.10.26-adapter-1':{youtube:{state:'checking'}}};
+ doc.campaigns={'yt-dlp-2026.10.26-adapter-2':{youtube:{state:'checking'}}};
  await assert.rejects(()=>requireVerifiedExtractor('youtube'),/not enabled/);
- doc.campaigns['yt-dlp-2026.10.26-adapter-1'].youtube.state='failed';
+ doc.campaigns['yt-dlp-2026.10.26-adapter-2'].youtube.state='failed';
  await assert.rejects(()=>requireVerifiedExtractor('youtube'),/failed/);
- doc.campaigns['yt-dlp-2026.10.26-adapter-1'].youtube.state='verified';
+ doc.campaigns['yt-dlp-2026.10.26-adapter-2'].youtube.state='verified';
  await requireVerifiedExtractor('youtube');
 });

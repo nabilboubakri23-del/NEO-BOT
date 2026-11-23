@@ -1,11 +1,13 @@
+import { access } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import docStore from '../../systems/database/docStore.js';
-import { extractMedia, EXTRACTOR_HOSTS } from './.extractor.js';
+import { extractMedia, EXTRACTOR_HOSTS, binaryPath } from './.extractor.js';
 import { downloadFile, MAX_MEDIA_BYTES } from './.lib.js';
 import { UserError } from '../../utils/errors.js';
 
 // One campaign per adapter revision, persisted in the existing database.
 // A restart reuses completed states and does not download the samples again.
-const REVISION = 'yt-dlp-2026.10.26-adapter-1';
+const REVISION = 'yt-dlp-2026.10.26-adapter-2';
 const SAMPLES = {
  youtube: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
  instagram: 'https://www.instagram.com/reel/CDUMkliABpa/',
@@ -25,6 +27,12 @@ export const verifyExtractorOnce = () => running ||= (async () => {
  }
  document.campaigns ||= {};
  const states = document.campaigns[REVISION] ||= {};
+ // A code deploy can start once before a Blueprint build-command sync finishes.
+ // Missing tooling is a setup failure, never a tested platform failure.
+ try { await access(binaryPath, constants.X_OK); } catch {
+  console.log('Download verification setup pending: executable unavailable.');
+  return states;
+ }
  for (const [platform, url] of Object.entries(SAMPLES)) {
   // An interrupted check is unknown, not safe to repeat automatically or enable.
   if (states[platform]) continue;
