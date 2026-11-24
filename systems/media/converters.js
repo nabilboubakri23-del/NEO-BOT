@@ -3,7 +3,7 @@ import { convert, hasFfmpeg } from './ffmpeg.js';
 import { isAnimatedWebp } from './webpExif.js';
 
 /**
- * Media conversions used by .toimage / .tomp3 / .togif.
+ * Media conversions used by .toimage / .tomp3 / .togif / .round.
  * Each returns the WhatsApp message content to send. Where no conversion is
  * strictly required, the original file is reused so the command still works without ffmpeg.
  */
@@ -42,4 +42,20 @@ export const toGif = async (buffer) => {
         args: (i, o) => ['-i', i, '-t', '20', '-an', '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', o]
     }).catch(() => buffer);
     return { video: mp4, gifPlayback: true, mimetype: 'video/mp4' };
+};
+
+/** Video → circular video note (WhatsApp "ptv"): centre-cropped square, sound kept, max 60 s. */
+export const toVideoNote = async (buffer) => {
+    if (!(await hasFfmpeg())) throw new UserError('Making a round video needs ffmpeg on the server.');
+    const mp4 = await convert(buffer, {
+        inExt: 'mp4',
+        outExt: 'mp4',
+        args: (i, o) => [
+            '-i', i, '-t', '60',
+            '-vf', 'crop=min(iw\\,ih):min(iw\\,ih),scale=384:384,setsar=1',
+            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-profile:v', 'main', '-crf', '28', '-preset', 'veryfast',
+            '-c:a', 'aac', '-b:a', '96k', '-ac', '1', '-movflags', '+faststart', o
+        ]
+    });
+    return { video: mp4, ptv: true, mimetype: 'video/mp4' };
 };
