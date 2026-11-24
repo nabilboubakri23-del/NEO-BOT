@@ -1,6 +1,4 @@
-# NEO BOT
-
-> **Version:** the one source is `package.json` (`config.bot.version` reads it; menus, stats, logs and the built-in plugins all show it). Section titles like "(v1.4.0)" below only mark the release a feature arrived in.
+# NEO BOT — V1.4.0 (Moderation, Media & Games)
 
 Modular WhatsApp bot. Phase 1: connection, dual authentication, encrypted sessions,
 auto-reconnect, message handling, real interactive list menu, `.menu` and `.ping`.
@@ -83,6 +81,7 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 | `.sticker [pack \| author]` (s) | 👤 everyone | Image / GIF / short video → sticker (ffmpeg). |
 | `.take <pack> \| [author]` (wm) | 👤 everyone | Re-label a sticker (pure JS, no ffmpeg). |
 | `.toimage` · `.tomp3` · `.togif` | 👤 everyone | Sticker → image, video / voice → MP3, video → GIF. |
+| `.round` (videonote, circle, دائرة) | 👤 everyone | Reply to a video → circular video message (centre square crop, sound kept, first 60 s). Needs ffmpeg. |
 | **Downloads** | | |
 | `.tiktok <link>` (tt, تيكتوك) | 👤 everyone | TikTok video without watermark; works out of the box. |
 | `.mediafire <link>` (mf, ميديافاير) | 👤 everyone | File from a public MediaFire link. |
