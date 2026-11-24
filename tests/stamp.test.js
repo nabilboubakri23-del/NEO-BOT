@@ -41,3 +41,36 @@ test('.stamp without a reply shows help and rejects unknown options', async () =
     assert.match(said, /STICKER STAMP/);
     await assert.rejects(stamp.execute({}, m, ['boom']), /Unknown option/);
 });
+
+import { LIMITS, sendStamps } from '../systems/media/stickerStamp.js';
+import { borderColour, clearBackground } from '../systems/media/backgroundRemoval.js';
+
+test('multi-stamp respects the user and owner caps', async () => {
+    _test.history.length = 0;
+    _test.uploads.set('7', { stickerMessage: { mimetype: 'image/webp', directPath: '/x' }, at: Date.now() });
+    let n = 0;
+    const sock = { user: { id: '1@s.whatsapp.net' }, relayMessage: async () => { n++; } };
+    const key = { ...parent, id: 'P2' };
+    assert.deepEqual(await sendStamps(sock, parent.remoteJid, key, '7', { count: 10, limit: LIMITS.user, gapMs: 0 }), { sent: LIMITS.user, capped: true });
+    await assert.rejects(sendStamps(sock, parent.remoteJid, key, '7', { count: 1, limit: LIMITS.user, gapMs: 0 }), /max 3/);
+    const owner = await sendStamps(sock, parent.remoteJid, key, '7', { count: 50, limit: LIMITS.owner, gapMs: 0 });
+    assert.equal(owner.sent, LIMITS.owner - LIMITS.user);
+    assert.equal(n, LIMITS.owner);
+    _test.history.length = 0;
+    _test.uploads.clear();
+});
+
+test('background removal clears the flat border colour and keeps the subject', () => {
+    const size = 64;
+    const px = new Uint8Array(size * size * 4);
+    for (let p = 0; p < size * size; p++) {
+        const x = p % size, y = Math.floor(p / size);
+        const inside = Math.hypot(x - 32, y - 32) < 16;
+        px.set(inside ? [200, 20, 20, 255] : [250, 250, 250, 255], p * 4);
+    }
+    assert.ok(borderColour(px, size)[0] > 240);
+    const { removed } = clearBackground(px, size);
+    assert.ok(removed > size * size * 0.6);
+    assert.equal(px[(32 * size + 32) * 4 + 3], 255);
+    assert.equal(px[3], 0);
+});

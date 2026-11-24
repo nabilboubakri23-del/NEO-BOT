@@ -23,7 +23,9 @@ const DOC = 'stickerStamps';
 const MAX_WEBP_BYTES = 600 * 1024;
 const MAX_USERS = 300;
 const REUPLOAD_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
-export const MAX_PER_MESSAGE = 3;
+export const LIMITS = { user: 3, owner: 15 }; // stamps per command and per message
+export const MAX_PER_MESSAGE = LIMITS.user;
+const GAP_MS = 700; // pause between stamps of one command (rate limit)
 const MAX_HISTORY = 2000;
 const ANNOTATION = proto.MessageAssociation.AssociationType.STICKER_ANNOTATION;
 
@@ -86,24 +88,41 @@ const stickerMessageFor = async (sock, owner) => {
 export const stampsOn = (chat, parentId) => history.filter((h) => h.chat === chat && h.parentId === parentId);
 
 /** The message content of one stamp (no network). */
-export const buildStamp = (stickerMessage, parentKey) => ({
+export const buildStamp = (stickerMessage, parentKey, index = 0) => ({
     stickerMessage: { ...stickerMessage, stickerSentTs: Date.now() },
-    messageContextInfo: { messageAssociation: { associationType: ANNOTATION, parentMessageKey: parentKey } }
+    messageContextInfo: { messageAssociation: { associationType: ANNOTATION, parentMessageKey: parentKey, messageIndex: index } }
 });
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
- * Puts the owner's stamp on the message with key `parentKey`.
- * @returns {Promise<string>} id of the stamp message
+ * Puts `count` of the owner's stamps on the message with key `parentKey`.
+ * `limit` is the sender's cap (LIMITS.user or LIMITS.owner): per command and per message.
+ * @returns {Promise<{ sent: number, capped: boolean }>}
  */
-export const sendStamp = async (sock, chat, parentKey, owner) => {
+export const sendStamps = async (sock, chat, parentKey, owner, { count = 1, limit = LIMITS.user, gapMs = GAP_MS } = {}) => {
     if (!parentKey?.id) throw new UserError('Reply to the message you want to stamp.');
-    if (stampsOn(chat, parentKey.id).length >= MAX_PER_MESSAGE) throw new UserError(`That message already has ${MAX_PER_MESSAGE} stamps from the bot.`);
+    const already = stampsOn(chat, parentKey.id).length;
+    const room = Math.max(0, limit - already);
+    if (!room) throw new UserError(`That message already has ${already} stamps from the bot (max ${limit}).`);
+    const wanted = Math.max(1, Math.floor(count) || 1);
+    const amount = Math.min(wanted, limit, room);
     const stickerMessage = await stickerMessageFor(sock, owner);
-    const built = generateWAMessageFromContent(chat, buildStamp(stickerMessage, parentKey), { userJid: sock.user?.id });
-    await sock.relayMessage(chat, built.message, { messageId: built.key.id });
-    history.push({ id: built.key.id, chat, parentId: parentKey.id, by: owner, at: Date.now() });
+    let sent = 0;
+    for (let k = 0; k < amount; k++) {
+        if (k) await sleep(gapMs);
+        const built = generateWAMessageFromContent(chat, buildStamp(stickerMessage, parentKey, already + k), { userJid: sock.user?.id });
+        await sock.relayMessage(chat, built.message, { messageId: built.key.id });
+        history.push({ id: built.key.id, chat, parentId: parentKey.id, by: owner, at: Date.now() });
+        sent++;
+    }
     if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
-    return built.key.id;
+    return { sent, capped: amount < wanted };
+};
+
+export const sendStamp = async (sock, chat, parentKey, owner) => {
+    await sendStamps(sock, chat, parentKey, owner, { count: 1 });
+    return history.at(-1).id;
 };
 
 /**
