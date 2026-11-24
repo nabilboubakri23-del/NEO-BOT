@@ -1,6 +1,6 @@
 {
   "name": "neo-bot",
-  "version": "1.16.0",
+  "version": "1.17.0",
   "description": "NEO BOT - Advanced modular WhatsApp bot",
   "main": "index.js",
   "type": "module",

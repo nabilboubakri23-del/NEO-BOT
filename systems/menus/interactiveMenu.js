@@ -67,6 +67,7 @@ export const sendButtons = async (sock, jid, message, { quoted, fallbackText } =
             .setTitle(message.title || '')
             .setBody(message.body)
             .setFooter(message.footer || '');
+        if (message.image) builder.setImage(message.image);
 
         for (const button of message.buttons) {
             if (button.type === 'reply') builder.addReply(button.text, button.id);
@@ -77,6 +78,7 @@ export const sendButtons = async (sock, jid, message, { quoted, fallbackText } =
         return await relayBuilt(sock, builder, jid, quoted);
     } catch (error) {
         log.error(`Interactive buttons failed, sending text fallback: ${describeError(error)}`);
+        if (message.image) return sock.sendMessage(jid, { image: message.image, caption: fallbackText || buttonsFallback(message) }, quoted ? { quoted } : {});
         return sock.sendMessage(jid, { text: fallbackText || buttonsFallback(message) }, quoted ? { quoted } : {});
     }
 };
