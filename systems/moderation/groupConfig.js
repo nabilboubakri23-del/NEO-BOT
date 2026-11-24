@@ -19,6 +19,7 @@ export const GROUP_SCHEMA = Object.freeze({
     antispam: { type: 'enum', values: ['off', 'delete', 'warn', 'mute', 'kick'], default: 'off', description: 'Flood, repeats, mass tags, crash texts: off | delete | warn | mute (escalating) | kick (after 2 strikes)' },
     spamlimit: { type: 'int', min: 4, max: 20, default: 7, description: 'Messages allowed per 10 seconds before it counts as flood' },
     exemptadmins: { type: 'bool', default: true, description: 'Group admins and bot staff skip protection (turn off to test it as an admin)' },
+    antibot: { type: 'enum', values: ACTIONS, default: 'off', description: 'Messages from other bots: off | delete | warn | kick (flagged bots are remembered)' },
     warnlimit: { type: 'int', min: 2, max: 10, default: 3, description: 'Warnings before a member is removed' },
     adminonly: { type: 'bool', default: false, description: 'Only group admins (and bot staff) can use commands here' },
     levelup: { type: 'bool', default: false, description: 'Announce level-ups in this group' }
@@ -58,4 +59,4 @@ export const setGroupOption = (group, key, raw) => {
 
 /** True when any enforcement option is active (lets the message guard skip quiet groups fast). */
 export const hasActiveGuards = (group) =>
-    ['antilink', 'antivcard', 'antibad', 'antispam'].some((key) => getGroupOption(group, key) !== 'off');
+    ['antilink', 'antivcard', 'antibad', 'antispam', 'antibot'].some((key) => getGroupOption(group, key) !== 'off');

@@ -1,3 +1,4 @@
+import config from '../../config/config.js';
 import events from '../../core/events.js';
 import { createAccess } from '../permissions/permissions.js';
 import { mentionOf } from '../../utils/mentions.js';
@@ -11,6 +12,8 @@ import { applyWarning, deleteMessage, removeMember } from './actions.js';
 import { checkText } from './profanity/matcher.js';
 import { getCustomWords } from './profanity/customWords.js';
 import { FloodDetector } from './spam/floodDetector.js';
+import { CommandTracker, scoreMessage } from './botDetector.js';
+import { flagBot, isAllowedBot, isKnownBot } from './knownBots.js';
 
 /**
  * Message guard: enforces mutes, anti-link, anti-vCard, anti-profanity and anti-spam
@@ -29,6 +32,7 @@ import { FloodDetector } from './spam/floodDetector.js';
 const TAG = 'core:moderation';
 const notices = new NoticeLimiter();
 export const floodDetector = new FloodDetector();
+export const commandTracker = new CommandTracker();
 
 /** Every piece of text a message carries (body, caption, poll, document name...). */
 export const scanText = (message) => [message.text, message.extraText].filter(Boolean).join('\n');
@@ -52,13 +56,29 @@ const REASON = {
     flood: 'Flooding the chat',
     repeat: 'Repeating the same message',
     mentions: 'Mass tagging members',
-    bomb: 'Oversized or crash text'
+    bomb: 'Oversized or crash text',
+    bot: 'Bots are not allowed here'
 };
 
 const isExempt = async (access) => access.atLeast('moderator') || (await access.isAdmin());
 /** Protection skips admins and staff unless the group turned "exemptadmins" off. */
 const skipsGuard = async (access, group) => getGroupOption(group, 'exemptadmins') && (await isExempt(access));
 const botAdminNotices = new NoticeLimiter(30 * 60_000);
+
+/**
+ * Anti-bot verdict, or null. Bots are judged even when they are group admins
+ * (bot farms often promote each other); bot staff and allow-listed bots are skipped.
+ */
+const findBot = async (sock, message, who, access) => {
+    const group = message.chat;
+    if (isAllowedBot(group, who)) return null;
+    if (isKnownBot(group, who)) return { kind: 'bot', action: getGroupOption(group, 'antibot'), known: true };
+    const verdict = scoreMessage(message, commandTracker);
+    if (!verdict.bot) return null;
+    if (access.atLeast('moderator')) return null;
+    flagBot(group, who, { jid: message.raw.key.participant || message.sender, reason: verdict.reasons.join(', ') });
+    return { kind: 'bot', action: getGroupOption(group, 'antibot'), reasons: verdict.reasons };
+};
 
 const SPAM_MUTES = [0, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000]; // by strike number (1st = delete only)
 
@@ -105,6 +125,38 @@ const punishContent = async (sock, message, violation, who, jid, tag) => {
     return [`🗑️ ${tag.text} — ${reason}.`];
 };
 
+const botNotices = new NoticeLimiter(30 * 60_000);
+
+/**
+ * Removes a bot's message. The first catch of a bot is announced (once per bot per 30 min);
+ * later messages of a known bot are removed silently, so the guard never adds noise.
+ */
+const punishBot = async (sock, message, bot, who, access) => {
+    const group = message.chat;
+    if (!(await access.isBotAdmin())) {
+        if (botAdminNotices.allow(group)) await sock.sendMessage(group, { text: box('ANTI-BOT', ['A bot was detected here.', 'I cannot delete it: make the bot a group admin.']) }).catch(() => {});
+        return true;
+    }
+    await deleteMessage(sock, message.raw.key);
+    const jid = message.raw.key.participant || message.sender;
+    const tag = mentionOf(message);
+    const lines = [`🤖 ${tag.text} — ${REASON.bot}.`];
+    if (bot.reasons) lines.push(`Detected: ${bot.reasons.join(', ')}.`);
+    if (bot.action === 'kick') {
+        const kicked = await removeMember(sock, group, jid);
+        lines.push(kicked ? 'Removed from the group.' : 'Could not remove it (maybe a group admin). Its messages will keep being deleted.');
+    } else if (bot.action === 'warn' && !bot.known) {
+        const result = await applyWarning(sock, group, who, jid, { by: 'auto', reason: REASON.bot });
+        lines.push(`Warning ${result.count}/${result.limit}.`);
+        if (result.kicked) lines.push('Limit reached: removed from the group.');
+    }
+    if (!bot.known && botNotices.allow(`${group}|${tag.jid}`)) {
+        lines.push(`Not a bot? An admin can send ${config.bot.prefix}antibot allow @user`);
+        await sock.sendMessage(group, { text: box('ANTI-BOT', lines), mentions: [tag.jid] }).catch(() => {});
+    }
+    return false;
+};
+
 /** 'message' / 'message:edit' listener. Returns false when the message was removed (stops routing). */
 export const guardMessage = async ({ sock, message }) => {
     if (!message.isGroup || message.fromMe) return true;
@@ -113,6 +165,14 @@ export const guardMessage = async ({ sock, message }) => {
     const who = senderOf(message);
     const config = getGroupConfig(group);
     const personId = `${group}|${personKey(who)}`;
+
+    const antibot = config.antibot !== 'off';
+    if (antibot) {
+        const access = createAccess(sock, message);
+        const bot = await findBot(sock, message, who, access);
+        commandTracker.record(message);
+        if (bot) return punishBot(sock, message, bot, who, access);
+    }
 
     let violation = findViolation(message, config, activeMute(group, who), getCustomWords(group));
     let spamKind = null;

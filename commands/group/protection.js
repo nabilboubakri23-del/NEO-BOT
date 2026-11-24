@@ -117,6 +117,7 @@ export const protect = {
                 `📇 Anti-vCard: ${c.antivcard}`,
                 `🤬 Anti-profanity: ${c.antibad} (${c.badlevel}, +${words.block.length} own, ${words.allow.length} allowed)`,
                 `🌊 Anti-spam: ${c.antispam} (${c.spamlimit} msgs / 10 s)`,
+                `🤖 Anti-bot: ${c.antibot}`,
                 `⚠️ Warn limit: ${c.warnlimit}`,
                 `👮 Admin-only commands: ${show(c.adminonly)}`,
                 `🛂 Admins exempt: ${show(c.exemptadmins)}`,
