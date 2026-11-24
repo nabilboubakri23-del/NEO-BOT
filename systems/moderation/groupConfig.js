@@ -20,6 +20,7 @@ export const GROUP_SCHEMA = Object.freeze({
     spamlimit: { type: 'int', min: 4, max: 20, default: 7, description: 'Messages allowed per 10 seconds before it counts as flood' },
     exemptadmins: { type: 'bool', default: true, description: 'Group admins and bot staff skip protection (turn off to test it as an admin)' },
     antibot: { type: 'enum', values: ACTIONS, default: 'off', description: 'Messages from other bots: off | delete | warn | kick (flagged bots are remembered)' },
+    botnotice: { type: 'bool', default: true, description: 'Anti-bot posts a notice when it first catches a bot (off = completely silent)' },
     warnlimit: { type: 'int', min: 2, max: 10, default: 3, description: 'Warnings before a member is removed' },
     adminonly: { type: 'bool', default: false, description: 'Only group admins (and bot staff) can use commands here' },
     levelup: { type: 'bool', default: false, description: 'Announce level-ups in this group' }

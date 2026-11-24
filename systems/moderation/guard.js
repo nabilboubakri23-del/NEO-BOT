@@ -150,7 +150,7 @@ const punishBot = async (sock, message, bot, who, access) => {
         lines.push(`Warning ${result.count}/${result.limit}.`);
         if (result.kicked) lines.push('Limit reached: removed from the group.');
     }
-    if (!bot.known && botNotices.allow(`${group}|${tag.jid}`)) {
+    if (!bot.known && getGroupOption(group, 'botnotice') && botNotices.allow(`${group}|${tag.jid}`)) {
         lines.push(`Not a bot? An admin can send ${config.bot.prefix}antibot allow @user`);
         await sock.sendMessage(group, { text: box('ANTI-BOT', lines), mentions: [tag.jid] }).catch(() => {});
     }

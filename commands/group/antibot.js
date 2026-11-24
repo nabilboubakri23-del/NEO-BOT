@@ -13,6 +13,7 @@ import { isSelf, resolveUserTarget, targetJid } from '../../utils/targets.js';
  *   .antibot add @bot      (or reply)  mark a bot by hand
  *   .antibot allow @bot    (or reply)  keep a bot you want (never touched)
  *   .antibot remove @bot   (or reply)  take it off both lists
+ *   .antibot silent | notify           no notice from the bot / notice on first catch
  *   .antibot list | clear
  * Detection is in systems/moderation/botDetector.js; enforcement in guard.js. The bot must be admin.
  */
@@ -36,12 +37,13 @@ const target = async (sock, m, arg) => {
 const status = async (sock, m) => {
     const { bots, allow } = listBots(m.chat);
     return m.reply(box('ANTI-BOT', [
-        `Mode: ${getGroupOption(m.chat, 'antibot')}`,
+        `Mode: ${getGroupOption(m.chat, 'antibot')}${getGroupOption(m.chat, 'botnotice') ? '' : ' (silent)'}`,
         `🤖 Caught / marked bots: ${bots.length}`,
         `✅ Allowed bots: ${allow.length}`,
         '',
         `${P()}antibot delete | warn | kick | off`,
         `${P()}antibot add @bot  ·  allow @bot  ·  remove @bot`,
+        `${P()}antibot silent  ·  notify`,
         `${P()}antibot list  ·  clear`,
         ...(await readinessLines(sock, m))
     ]));
@@ -74,6 +76,10 @@ export default {
             const mode = sub === 'on' || sub === 'تشغيل' ? 'delete' : ['ايقاف', 'إيقاف'].includes(sub) ? 'off' : sub;
             const { value } = setGroupOption(m.chat, 'antibot', mode);
             return m.reply(success('ANTI-BOT', [`Mode → ${value}`, MODE_TEXT[value], ...(value === 'off' ? [] : ['', 'Allow a bot you want to keep:', `${P()}antibot allow @bot`]), ...(await readinessLines(sock, m))]));
+        }
+        if (['silent', 'quiet', 'صامت'].includes(sub) || ['notify', 'loud'].includes(sub)) {
+            const { value } = setGroupOption(m.chat, 'botnotice', ['notify', 'loud'].includes(sub) ? 'on' : 'off');
+            return m.reply(value ? '🔔 Anti-bot will post a notice when it catches a new bot.' : '🔕 Anti-bot is silent: bots are removed with no notice from me.');
         }
         if (sub === 'list') return list(m);
         if (sub === 'clear') return m.reply(`🧹 Cleared ${clearBots(m.chat)} blocked bots. Allowed bots kept.`);
