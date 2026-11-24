@@ -1,3 +1,4 @@
+import config from '../config/config.js';
 import { box } from '../utils/formatter.js';
 
 /**
@@ -13,7 +14,7 @@ const DOC = 'groups'; // { "<groupJid>": true }  → greetings enabled here
 
 export default {
     name: 'welcome',
-    version: '1.0.0',
+    version: config.bot.version,
     author: 'NEO BOT',
     description: 'Welcome and goodbye messages for group members.',
 

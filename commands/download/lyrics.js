@@ -69,7 +69,7 @@ const sendResults = (sock, m, s) => sendListMenu(sock, m.chat, {
     title: 'Pick the song',
     body: box('LYRICS • SONGS', s.tracks.map((t, i) => `${i + 1}. ${t.title} — ${t.artist || 'Unknown'}${t.duration ? ` (${t.duration})` : ''}`)
         .concat(['', 'Pick one: you get the card with its lyrics', 'and the song as a voice note.'])),
-    footer: 'NEO BOT • Lyrics',
+    footer: `${config.bot.name} • Lyrics`,
     buttonText: 'Choose a song',
     sections: [
         { title: 'Songs', rows: s.tracks.map((t, i) => ({ id: `lyrics:pick:${s.token}:${i}`, title: `🎵 ${i + 1}. ${t.title}`.slice(0, 72), description: [t.artist, t.duration].filter(Boolean).join(' • ').slice(0, 72) })) },
@@ -98,7 +98,7 @@ const sendCard = async (sock, m, s, cover) => {
         if (!cover) throw new Error('no cover');
         return await sendCarousel(sock, m.chat, {
             body: `🎧 *${t.title}*`,
-            footer: 'NEO BOT • Lyrics',
+            footer: `${config.bot.name} • Lyrics`,
             cards: [{ title: t.title.slice(0, 60), header: await uploadHeader(sock, 'image', cover), body, footer: s.lyrics ? `Lyrics: ${s.lyrics.source}` : '', buttons }]
         }, { quoted: m.raw });
     } catch (error) {
@@ -138,7 +138,7 @@ const build = (sock, m, s) => sessions.run(m, 'build', 5_000, async () => {
             contextInfo: {
                 externalAdReply: {
                     title: t.title.slice(0, 80),
-                    body: [t.artist, t.album].filter(Boolean).join(' • ').slice(0, 100) || 'NEO BOT • Lyrics',
+                    body: [t.artist, t.album].filter(Boolean).join(' • ').slice(0, 100) || `${config.bot.name} • Lyrics`,
                     mediaType: 1,
                     ...(t.cover ? { thumbnailUrl: t.cover } : {}),
                     ...(cover ? { thumbnail: cover } : {}),

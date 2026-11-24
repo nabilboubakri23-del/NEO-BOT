@@ -316,7 +316,7 @@ const handleTyped = async ({ sock, message: m }, api) => {
 
 export default {
     name: 'songguess',
-    version: '1.0.0',
+    version: config.bot.version,
     author: 'NEO BOT',
     description: 'Guess the song from a short clip: packs, artists, speed points, streaks and rankings.',
     commands: [

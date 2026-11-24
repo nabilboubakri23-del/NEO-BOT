@@ -136,7 +136,7 @@ const handleMove = async ({ sock, message }, api) => {
 
 export default {
     name: 'tictactoe',
-    version: '1.0.0',
+    version: config.bot.version,
     author: 'NEO BOT',
     description: 'Tic-tac-toe against a friend or the bot, with coin rewards.',
     commands: [

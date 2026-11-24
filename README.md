@@ -1,4 +1,6 @@
-# NEO BOT — V1.4.0 (Moderation, Media & Games)
+# NEO BOT
+
+> **Version:** the one source is `package.json` (`config.bot.version` reads it; menus, stats, logs and the built-in plugins all show it). Section titles like "(v1.4.0)" below only mark the release a feature arrived in.
 
 Modular WhatsApp bot. Phase 1: connection, dual authentication, encrypted sessions,
 auto-reconnect, message handling, real interactive list menu, `.menu` and `.ping`.

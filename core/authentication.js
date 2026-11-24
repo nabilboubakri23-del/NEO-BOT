@@ -100,12 +100,12 @@ class Authentication extends EventEmitter {
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
         try {
             for (;;) {
-                console.log('\n' + terminalFrame(['NEO BOT', 'AUTHENTICATION'], [
+                console.log('\n' + terminalFrame([config.bot.name, 'AUTHENTICATION'], [
                     'Select connection method:', '', '[1] Phone Number', '[2] QR Code', '', 'Enter your choice:'
                 ]));
                 const answer = (await rl.question('> ')).trim();
                 if (!isValidAuthChoice(answer)) {
-                    console.log('\n[ NEO BOT ] Invalid selection. Please enter 1 or 2.');
+                    console.log(`\n[ ${config.bot.name} ] Invalid selection. Please enter 1 or 2.`);
                     continue;
                 }
                 if (answer === '2') {
@@ -133,7 +133,7 @@ class Authentication extends EventEmitter {
             try {
                 return normalizePhoneNumber(input);
             } catch (error) {
-                console.log(`\n[ NEO BOT ] ${error.message}`);
+                console.log(`\n[ ${config.bot.name} ] ${error.message}`);
             }
         }
     }

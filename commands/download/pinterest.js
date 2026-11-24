@@ -138,7 +138,7 @@ const showPage = async (sock, m, s, update) => {
     const page = Math.ceil(s.offset / PAGE[s.mode]);
     await sendCarousel(sock, m.chat, {
         body: `*Pinterest • ${MODE_LABEL[s.mode]}* for “${s.query}”\nTop picks by relevance and popularity. Swipe ← → and use the buttons under each card.${page > 1 ? `\nPage ${page}` : ''}`,
-        footer: 'NEO BOT • Pinterest',
+        footer: `${config.bot.name} • Pinterest`,
         cards
     }, { quoted: m.raw });
     await update(`✅ ${cards.length} ${MODE_LABEL[s.mode].toLowerCase()} for “${s.query}”.`);
@@ -217,7 +217,7 @@ const chooseQuality = async (sock, m, s, index) => {
             '',
             'Higher quality = bigger file, slower to send.'
         ].filter((l) => l !== '')),
-        footer: 'NEO BOT • Pinterest',
+        footer: `${config.bot.name} • Pinterest`,
         buttonText: 'Select quality',
         sections: [
             {

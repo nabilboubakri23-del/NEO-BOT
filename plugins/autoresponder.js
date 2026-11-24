@@ -388,7 +388,7 @@ export const chooseReaction = (store, mode, message, { isOwnerSender }) => {
 
 export default {
     name: 'autoresponder',
-    version: '2.2.0',
+    version: config.bot.version,
     author: 'NEO BOT',
     description: 'Auto-replies and mood-aware auto-reactions (smart, every message, trigger words, owners only), off by default.',
     commands: [

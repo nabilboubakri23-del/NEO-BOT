@@ -1,8 +1,12 @@
 import 'dotenv/config';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+/** The one bot version: package.json (shown in menus, stats, logs and plugin lists). */
+const VERSION = JSON.parse(readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')).version;
 
 const toInt = (value, fallback) => {
     const parsed = Number.parseInt(value, 10);
@@ -29,7 +33,7 @@ const config = Object.freeze({
     }),
     bot: Object.freeze({
         name: process.env.BOT_NAME || 'NEO BOT',
-        version: '1.4.0',
+        version: VERSION,
         prefix: process.env.BOT_PREFIX || '.',
         footer: 'Advanced WhatsApp Assistant',
         website: process.env.BOT_WEBSITE || 'https://github.com'

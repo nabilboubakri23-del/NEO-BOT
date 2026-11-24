@@ -19,7 +19,7 @@ export function diagnosticDecision(message, args, ready, busy, last, now) {
 
 export default {
     name: 'soundstickertest',
-    category: 'sticker',
+    category: 'media',
     description: 'Sound sticker diagnostic: blue square with a one-second tone.',
     usage: '',
     permission: 'public',

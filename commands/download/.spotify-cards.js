@@ -1,3 +1,4 @@
+import config from '../../config/config.js';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { Carousel, prepareWAMessageMedia } from 'baileys';
@@ -33,7 +34,7 @@ export const cardText = (t) => [
 
 export const spotifyCarousel = (sock, session, images) => new Carousel(sock)
     .setBody(`*Spotify results* (${session.tracks.length})\nSwipe the cards and tap *Download* on the right song.\nResults expire in 5 minutes.`)
-    .setFooter('NEO BOT • Spotify')
+    .setFooter(`${config.bot.name} • Spotify`)
     .addCard(session.tracks.map((t, i) => ({
         header: { title: t.title, hasMediaAttachment: true, imageMessage: images[i] },
         body: { text: cardText(t) },

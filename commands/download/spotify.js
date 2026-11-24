@@ -75,7 +75,7 @@ const askInput = async (sock, m, token, mode) => {
 const sendResultList = (sock, m, s) => sendListMenu(sock, m.chat, {
     title: 'Spotify results',
     body: box('SPOTIFY RESULTS', s.tracks.map((t, i) => `${i + 1}. ${t.title} — ${t.artist || 'Unknown'}${t.duration ? ` (${t.duration})` : ''}`).concat(['', 'Tap *Choose a song* and pick one.', 'Results expire in 5 minutes.'])),
-    footer: 'NEO BOT • Spotify',
+    footer: `${config.bot.name} • Spotify`,
     buttonText: 'Choose a song',
     sections: [
         {

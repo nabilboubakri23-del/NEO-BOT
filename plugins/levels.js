@@ -14,7 +14,7 @@ import { senderOf } from '../utils/targets.js';
 
 export default {
     name: 'levels',
-    version: '1.0.0',
+    version: config.bot.version,
     author: 'NEO BOT',
     description: 'XP and levels from chatting (announcements opt-in per group).',
     hooks: {

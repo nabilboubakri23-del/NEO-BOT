@@ -133,7 +133,7 @@ const handleAnswer = async ({ sock, message }, api) => {
 
 export default {
     name: 'quiz',
-    version: '1.0.0',
+    version: config.bot.version,
     author: 'NEO BOT',
     description: 'Flag, math and word-scramble quizzes with coin rewards.',
     commands: [
