@@ -1,4 +1,4 @@
-import { stickerToImage, toGif, toMp3 } from '../../systems/media/converters.js';
+import { stickerToImage, toGif, toMp3, toVideoNote } from '../../systems/media/converters.js';
 import { downloadMedia, findMedia } from '../../utils/media.js';
 import { UsageError } from '../../utils/errors.js';
 
@@ -7,6 +7,7 @@ import { UsageError } from '../../utils/errors.js';
  *   .toimage   static sticker → image
  *   .tomp3     video / voice note → MP3
  *   .togif     video → GIF (looping, muted)
+ *   .round     video → circular video note (square crop, sound kept, max 60 s)
  * Animated sticker → video is not supported (ffmpeg cannot decode animated WebP).
  */
 
@@ -53,4 +54,13 @@ export const togif = make({
     run: (buffer) => toGif(buffer)
 });
 
-export default [toimage, tomp3, togif];
+export const round = make({
+    name: 'round',
+    aliases: ['videonote', 'circle', 'دائرة'],
+    description: 'Turn a video into a circular video message.',
+    kinds: ['video'],
+    need: 'a video',
+    run: (buffer) => toVideoNote(buffer)
+});
+
+export default [toimage, tomp3, togif, round];

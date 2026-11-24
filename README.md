@@ -83,6 +83,7 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 | `.sticker [pack \| author]` (s) | 👤 everyone | Image / GIF / short video → sticker (ffmpeg). |
 | `.take <pack> \| [author]` (wm) | 👤 everyone | Re-label a sticker (pure JS, no ffmpeg). |
 | `.toimage` · `.tomp3` · `.togif` | 👤 everyone | Sticker → image, video / voice → MP3, video → GIF. |
+| `.round` (videonote, circle, دائرة) | 👤 everyone | Reply to a video → circular video message (centre square crop, sound kept, first 60 s). Needs ffmpeg. |
 | **Downloads** | | |
 | `.tiktok <link>` (tt, تيكتوك) | 👤 everyone | TikTok video without watermark; works out of the box. |
 | `.mediafire <link>` (mf, ميديافاير) | 👤 everyone | File from a public MediaFire link. |
