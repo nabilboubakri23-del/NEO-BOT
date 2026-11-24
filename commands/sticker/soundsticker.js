@@ -10,7 +10,7 @@ import { sendButtons, sendListMenu } from '../../systems/menus/interactiveMenu.j
 import { FlowSessions } from '../../systems/interaction/flowSessions.js';
 import { CANCEL_WORDS, captureInput } from '../../systems/interaction/inputCapture.js';
 import { defaultMeta, makeSticker } from '../../systems/media/sticker.js';
-import { embeddedAudio, extractAudio, parseClipArgs, prepareClip, sendSoundSticker, MAX_SECONDS, MIN_SECONDS } from '../../systems/media/soundSticker.js';
+import { soundOf, extractAudio, parseClipArgs, prepareClip, sendSoundSticker, MAX_SECONDS, MIN_SECONDS } from '../../systems/media/soundSticker.js';
 import { downloadFile } from '../download/.lib.js';
 import { acquireAudio, classifyInput, searchTracks, toTrackUrl, trackInfo } from '../download/.spotify-core.js';
 
@@ -51,8 +51,8 @@ const visualFrom = async (sock, m) => {
     if (!media) return null;
     if (media.kind === 'video' && media.seconds > 15) throw new UserError('Videos up to 15 seconds.');
     const buffer = await downloadMedia(sock, media);
-    const sound = embeddedAudio(media.message);
-    return { webp: await makeSticker(buffer, media, meta()), hadSound: Boolean(sound), sound: sound ? { key: media.key, audio: sound } : null };
+    const sound = soundOf(media);
+    return { webp: await makeSticker(buffer, media, meta()), hadSound: Boolean(sound), sound };
 };
 
 /** Audio / voice note of this message or the one it replies to. */
@@ -239,11 +239,10 @@ const fromSong = async (sock, m, s, text) => {
 };
 
 const extract = async (sock, m, ref = null) => {
-    const media = ref ? null : findMedia(m, ['sticker']);
-    const audio = ref?.audio || embeddedAudio(media?.message);
-    if (!audio) throw new UserError('Reply to a sound sticker to get its sound.');
+    const sound = ref || soundOf(findMedia(m, ['sticker']));
+    if (!sound) throw new UserError('Reply to a sound sticker to get its sound.');
     await m.react?.('🔊');
-    const ogg = await extractAudio(sock, ref?.key || media.key, audio);
+    const ogg = await extractAudio(sock, sound.key, sound.audio, sound.alternatives);
     await sock.sendMessage(m.chat, { audio: ogg, mimetype: 'audio/ogg; codecs=opus', ptt: true }, { quoted: m.raw });
 };
 

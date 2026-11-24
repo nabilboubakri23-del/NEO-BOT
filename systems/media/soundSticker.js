@@ -3,6 +3,7 @@ import { child } from '../../core/logger.js';
 import { UserError } from '../../utils/errors.js';
 import { convert } from './ffmpeg.js';
 import { stickerAudioReady } from '../security/stickerAudioProtocol.js';
+import { recallSound, rememberSound } from './soundStickerCache.js';
 
 /**
  * Sound stickers: a WebP sticker that carries a short Opus voice clip inside
@@ -143,14 +144,51 @@ export const prepareClip = async (buffer, ext, { start = null, seconds = DEFAULT
 /** The audio clip inside a received sound sticker, or null. */
 export const embeddedAudio = (content) => content?.stickerMessage?.audioMessage || null;
 
-/** Downloads the clip of a sound sticker as an Opus buffer. */
-export const extractAudio = async (sock, key, audioMessage) => {
-    try {
-        return await downloadMediaMessage({ key, message: { audioMessage } }, 'buffer', {}, { logger: log, reuploadRequest: sock.updateMediaMessage });
-    } catch (error) {
-        log.warn(`Sound sticker audio download failed: ${error?.message}`);
-        throw new UserError('Could not download the sound of that sticker.');
+/**
+ * Sound of a found sticker media (utils/media findMedia result): the clip it carries
+ * plus the one remembered for that message id (reply copies may drop or garble it).
+ * Null for a plain sticker. `alternatives` are tried in order when downloading.
+ * @returns {{ key: object, audio: object, alternatives: Array<{ key, audio }> } | null}
+ */
+export const soundOf = (media) => {
+    if (!media || media.kind !== 'sticker') return null;
+    const audio = embeddedAudio(media.message);
+    const options = [];
+    if (audio?.mediaKey) options.push({ key: media.key, audio });
+    const remembered = recallSound(media.key?.id);
+    if (remembered) options.push(remembered);
+    if (!options.length) return null;
+    return { ...options[0], alternatives: options };
+};
+
+const downloadOne = (sock, key, audioMessage) =>
+    downloadMediaMessage({ key, message: { audioMessage } }, 'buffer', {}, { logger: log, reuploadRequest: sock.updateMediaMessage });
+
+/** Downloads the clip of a sound sticker as an Opus buffer (tries each known copy of it). */
+export const extractAudio = async (sock, key, audioMessage, alternatives = null) => {
+    const options = alternatives?.length ? alternatives : [{ key, audio: audioMessage }];
+    let last;
+    for (const option of options) {
+        try {
+            const buffer = await downloadOne(sock, option.key, option.audio);
+            if (buffer?.length) return buffer;
+        } catch (error) {
+            last = error;
+        }
     }
+    log.warn(`Sound sticker audio download failed: ${last?.message || 'empty'}`);
+    throw new UserError('Could not download the sound of that sticker. It may have expired; make it again with .ss');
+};
+
+/** Downloads a sticker's sound and returns it as a clip ready for sendSoundSticker. */
+export const clipOf = async (sock, sound) => {
+    const ogg = await extractAudio(sock, sound.key, sound.audio, sound.alternatives);
+    const wave = sound.audio.waveform;
+    return {
+        ogg,
+        seconds: Math.max(1, Number(sound.audio.seconds) || 1),
+        waveform: wave?.length ? Buffer.from(wave) : Buffer.alloc(64)
+    };
 };
 
 /**
@@ -168,5 +206,6 @@ export const sendSoundSticker = async (sock, jid, { webp, clip, quoted }) => {
     sticker.stickerMessage.audioMessage = audio.audioMessage;
     const built = generateWAMessageFromContent(jid, sticker, { userJid: sock.user?.id, ...(quoted ? { quoted } : {}) });
     await sock.relayMessage(jid, built.message, { messageId: built.key.id });
+    rememberSound(built.key, audio.audioMessage);
     return built;
 };

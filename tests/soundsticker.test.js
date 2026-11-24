@@ -60,3 +60,30 @@ test('sendSoundSticker relays one sticker that carries the audio', async () => {
     const round = proto.Message.decode(proto.Message.encode(proto.Message.fromObject(relayed)).finish());
     assert.equal(round.stickerMessage.audioMessage.seconds, 3);
 });
+
+test('soundOf falls back to the remembered sound when a reply copy drops it', async () => {
+    const { soundOf } = await import('../systems/media/soundSticker.js');
+    const { rememberSound, clearSounds } = await import('../systems/media/soundStickerCache.js');
+    const events = (await import('../core/events.js')).default;
+    clearSounds();
+    const key = { remoteJid: '2@s.whatsapp.net', id: 'ABC', fromMe: false };
+    const plain = { kind: 'sticker', key, message: { stickerMessage: { mimetype: 'image/webp' } } };
+    assert.equal(soundOf(plain), null);
+    assert.equal(soundOf({ kind: 'image', key, message: {} }), null);
+
+    rememberSound(key, { mediaKey: Buffer.alloc(32, 1), directPath: '/a', seconds: 4 });
+    const found = soundOf(plain);
+    assert.equal(found.audio.seconds, 4);
+    assert.equal(found.alternatives.length, 1);
+
+    const embedded = { kind: 'sticker', key, message: { stickerMessage: { audioMessage: { mediaKey: Buffer.alloc(32, 2), directPath: '/b', seconds: 7 } } } };
+    const both = soundOf(embedded);
+    assert.equal(both.audio.seconds, 7); // the copy in the message first
+    assert.equal(both.alternatives.length, 2); // then the remembered one
+
+    clearSounds();
+    const raw = { key: { remoteJid: '3@s.whatsapp.net', id: 'SEEN', fromMe: false }, message: { stickerMessage: { audioMessage: { mediaKey: Buffer.alloc(32, 3), directPath: '/c', seconds: 5 } } } };
+    await events.emit('message', { sock: {}, message: { raw } });
+    assert.equal(soundOf({ kind: 'sticker', key: raw.key, message: { stickerMessage: {} } }).audio.seconds, 5);
+    clearSounds();
+});
