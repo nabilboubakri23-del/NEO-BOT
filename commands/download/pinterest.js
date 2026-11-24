@@ -315,7 +315,7 @@ captureInput({
 
 export default {
     name: 'pinterest',
-    aliases: ['pin', 'pint', 'بنترست', 'بينترست'],
+    aliases: ['pint', 'pins', 'بنترست', 'بينترست'],
     category: 'download',
     permission: 'public',
     description: 'Smart Pinterest search: top images and edits as swipeable cards, with previews and quality choice.',

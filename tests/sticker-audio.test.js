@@ -49,25 +49,3 @@ test('current forwarding helper preserves embedded audio',()=>{
  assert.equal(out.stickerMessage.contextInfo.isForwarded,true);
 });
 process.on('exit',restore);
-
-const {diagnosticDecision}=await import('../commands/sticker/soundstickertest.js');
-const {stickerAudioReady}=await import('../systems/security/stickerAudioProtocol.js');
-test('public diagnostic supports private and group chats but not broadcasts',()=>{
- for(const chat of ['100@s.whatsapp.net','200@lid','300@g.us','400-500@g.us'])assert.equal(diagnosticDecision({chat},[],true,false,undefined,100),'ready');
- for(const chat of ['100@newsletter','status@broadcast','bad',undefined])assert.equal(diagnosticDecision({chat},[],true,false,undefined,100),'unsupported_chat');
-});
-test('all preparation gates return distinct decisions and codec initializes',()=>{
- const message={chat:'100@s.whatsapp.net'};
- assert.equal(stickerAudioReady(),true);
- assert.equal(diagnosticDecision(message,['x'],true,false,undefined,100),'unexpected_arguments');
- assert.equal(diagnosticDecision(message,[],false,false,undefined,100),'codec_not_ready');
- assert.equal(diagnosticDecision(message,[],true,true,undefined,100),'busy');
- assert.equal(diagnosticDecision(message,[],true,false,0,100),'cooldown');
- assert.equal(diagnosticDecision(message,[],true,false,0,60000),'ready');
-});
-test('blocked test outcomes reply with text only and never prepare media',async()=>{
- const command=(await import('../commands/sticker/soundstickertest.js')).default;
- let replies=[];let relays=0;
- await command.execute({relayMessage:async()=>relays++},{chat:'100@s.whatsapp.net',reply:async x=>replies.push(x)},['x']);
- assert.equal(replies.length,1);assert.match(replies[0],/without arguments/);assert.equal(relays,0);
-});

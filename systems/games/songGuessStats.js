@@ -33,7 +33,7 @@ export const recordGame = async (chat, players) => {
     players.forEach((p, i) => {
         const key = personKey(p.who);
         if (!key) return;
-        const won = i === 0 && p.points > 0 && players.length > 1;
+        const won = p.won ?? (i === 0 && p.points > 0 && players.length > 1);
         apply(table, key, p, won);
         apply(doc.global, key, p, won);
     });

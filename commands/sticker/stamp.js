@@ -1,3 +1,4 @@
+import { quotedKey } from '../../utils/quotedKey.js';
 import config from '../../config/config.js';
 import { box } from '../../utils/formatter.js';
 import { UserError } from '../../utils/errors.js';
@@ -79,9 +80,8 @@ const undo = async (sock, m, countText) => {
 };
 
 const stamp = async (sock, m, countText) => {
-    if (!m.quoted?.key?.id) return help(m);
-    const key = { ...m.quoted.key };
-    if (!key.participant && m.isGroup) key.participant = m.quoted.sender;
+    const key = quotedKey(m);
+    if (!key) return help(m);
     const limit = limitOf(m);
     const { sent, capped } = await sendStamps(sock, m.chat, key, owner(m), { count: parseInt(countText, 10) || 1, limit });
     await m.react?.('🏷️');

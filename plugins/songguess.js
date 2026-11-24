@@ -72,7 +72,8 @@ const playRound = async (game) => {
         '',
         ...labels.map((l, i) => `*${i + 1}.* ${l}`),
         '',
-        `⏱️ ${game.diff.window} s · tap, or type 1–4 or the title`
+        `⏱️ ${game.diff.window} s · tap, or type 1–4 or the title`,
+        `🚪 Type انسحاب or ${P}sg leave to quit`
     ]);
     await sendButtons(sock, chat, {
         title: '',
@@ -91,7 +92,7 @@ const answer = async (game, m, choice) => {
     if (!cur || cur.ending || !cur.startedAt) return;
     const who = senderOf(m);
     const key = personKey(who);
-    if (!key || cur.answers.has(key)) return;
+    if (!key || cur.answers.has(key) || game.gone[key]) return;
     const tag = mentionOf(m);
     const player = (game.players[key] ||= { who, jid: tag.jid, text: tag.text, name: m.pushName || '', points: 0, correct: 0, answered: 0, streak: 0, bestStreak: 0 });
     cur.answers.set(key, { choice, correct: choice === cur.correct, ms: Date.now() - cur.startedAt });
@@ -99,7 +100,7 @@ const answer = async (game, m, choice) => {
     await react(game.sock, m, '🎧'); // neutral: nobody can copy a ✅
     const known = Object.keys(game.players).length;
     // Everyone who has played so far answered: no need to wait (needs 2+ players, never in round 1).
-    if (game.round > 1 && known >= 2 && cur.answers.size >= known) {
+    if (game.round > 1 && known >= 2 && Object.keys(game.players).every((k) => cur.answers.has(k))) {
         cur.ending = true;
         setTimeout(() => endRound(game, cur.token).catch((e) => log.error(describeError(e))), 1500).unref?.();
     }
@@ -111,8 +112,10 @@ const endRound = async (game, token) => {
     clearTimeout(cur.timer);
     game.current = null;
     const windowMs = game.diff.window * 1000;
-    const right = [...cur.answers.entries()].filter(([, a]) => a.correct).sort((a, b) => a[1].ms - b[1].ms);
-    const wrong = cur.answers.size - right.length;
+    // Answers of players who left during the round do not count (their answer stays, so rejoining cannot re-answer).
+    const counted = [...cur.answers.entries()].filter(([key]) => game.players[key]);
+    const right = counted.filter(([, a]) => a.correct).sort((a, b) => a[1].ms - b[1].ms);
+    const wrong = counted.length - right.length;
 
     for (const [key, p] of Object.entries(game.players)) {
         const a = cur.answers.get(key);
@@ -127,7 +130,7 @@ const endRound = async (game, token) => {
         p.points += pts;
         return `${i === 0 ? '⚡' : '✅'} ${p.text} ${secs(a.ms)} +${pts}${p.streak >= 2 ? ` 🔥${p.streak}` : ''}`;
     });
-    game.silent = cur.answers.size ? 0 : game.silent + 1;
+    game.silent = counted.length ? 0 : game.silent + 1;
 
     const t = cur.track;
     const top = standings(game).slice(0, 3);
@@ -167,8 +170,17 @@ const finish = async (game, note = '') => {
         }
         lines.push(`${medal(i)} ${p.text} — ${p.points} pts · ${p.correct}/${game.round} ✓ · best 🔥${p.bestStreak} (+🪙${prize.coins})`);
     });
-    await recordGame(game.chat, ranking.map((p) => ({ ...p, name: p.name || p.text }))).catch((e) => log.warn(describeError(e)));
-    await game.sock.sendMessage(game.chat, { text: box(NAME, lines), mentions: ranking.map((p) => p.jid) });
+    // Players who left keep what they earned, but are not on the podium and cannot win.
+    const leavers = Object.values(game.gone).filter((p) => p.answered);
+    if (leavers.length) lines.push('', `🚪 Left: ${leavers.map((p) => `${p.text} ${p.points}`).join(' · ')}`);
+    leavers.forEach((p) => {
+        if (!p.points) return;
+        addCoins(p.who, Math.round(p.points / 10));
+        addXp(p.who, Math.round(p.points / 5));
+    });
+    const mentions = [...ranking, ...leavers].map((p) => p.jid);
+    await recordGame(game.chat, [...ranking, ...leavers.map((p) => ({ ...p, won: false }))].map((p) => ({ ...p, name: p.name || p.text }))).catch((e) => log.warn(describeError(e)));
+    await game.sock.sendMessage(game.chat, { text: box(NAME, lines), mentions });
     const again = box(NAME, ['Another game?']);
     await sendButtons(game.sock, game.chat, {
         title: '',
@@ -213,7 +225,7 @@ const startGame = async (sock, m, args) => {
     if (games.has(m.chat)) return m.reply(box(NAME, ['A game is already running here.', `${P}sg stop to end it.`]));
     if (games.size >= MAX_GAMES) return m.reply(box(NAME, ['Too many games are running right now. Try again in a few minutes.']));
     const { source, rounds, diff } = parseStart(args);
-    const game = { sock, chat: m.chat, starter: personKey(senderOf(m)), rounds, diff: DIFFICULTY[diff], players: {}, round: 0, silent: 0, over: false, current: null, replay: args.join(' ') };
+    const game = { sock, chat: m.chat, starter: personKey(senderOf(m)), rounds, diff: DIFFICULTY[diff], players: {}, gone: {}, round: 0, silent: 0, over: false, current: null, replay: args.join(' ') };
     games.set(m.chat, game); // reserve the chat while loading
     try {
         await react(sock, m, '🎶');
@@ -225,14 +237,25 @@ const startGame = async (sock, m, args) => {
         Object.assign(game, { title: pool.title, artistMode: pool.artistMode, tracks: pool.tracks, queue: shuffle(usable) });
         game.rounds = Math.min(rounds, game.queue.length);
         recent.set(m.chat, [...played, ...game.queue.slice(0, game.rounds + 3).map((t) => t.id)].slice(-RECENT_LIMIT));
-        await m.reply(box(NAME, [
+        const intro = box(NAME, [
             `${pool.title} · ${game.rounds} rounds · ${game.diff.label}`,
             `🎧 ${game.diff.clip} s clip, ${game.diff.window} s to answer`,
             '⚡ faster = more points · 🔥 streaks add a bonus',
             'Everyone can play: tap an option or type 1–4.',
             '',
+            `🚪 Quit anytime: انسحاب or ${P}sg leave · back: ${P}sg join`,
+            '',
             '▶️ First song coming up…'
-        ]));
+        ]);
+        await sendButtons(sock, m.chat, {
+            title: '',
+            body: intro,
+            footer: config.bot.footer,
+            buttons: [
+                { type: 'reply', text: '🚪 Leave', id: `${P}songguess leave` },
+                { type: 'reply', text: '⏹️ Stop', id: `${P}songguess stop` }
+            ]
+        }, { quoted: m.raw, fallbackText: intro });
         game.next = prepare(game);
         await playRound(game);
     } catch (error) {
@@ -240,6 +263,33 @@ const startGame = async (sock, m, args) => {
         game.over = true;
         throw error;
     }
+};
+
+const LEAVE_WORDS = /^(leave|quit|انسحاب|انسحب|خروج|اخرج)$/i;
+
+/** A player leaves: out of the standings and the round, points kept in case they rejoin. */
+const leave = async (game, m) => {
+    const key = personKey(senderOf(m));
+    const tag = mentionOf(m);
+    if (!key || game.gone[key]) return m.reply(box(NAME, ['You are not in this game.']));
+    const player = game.players[key];
+    delete game.players[key];
+    game.gone[key] = player || { who: senderOf(m), jid: tag.jid, text: tag.text, name: m.pushName || '', points: 0, correct: 0, answered: 0, streak: 0, bestStreak: 0 };
+    if (game.starter === key) game.starter = Object.keys(game.players)[0] || null;
+    await game.sock.sendMessage(game.chat, { text: box(NAME, [`🚪 ${tag.text} left the game${player?.points ? ` with ${player.points} pts` : ''}.`, `Come back: ${P}sg join`]), mentions: [tag.jid] });
+    // Nobody left who ever played: stop instead of playing to an empty room.
+    if (!Object.keys(game.players).length && Object.keys(game.gone).length && game.round > 1) return finish(game, '🚪 Everyone left.');
+    return undefined;
+};
+
+const join = async (game, m) => {
+    const key = personKey(senderOf(m));
+    const back = key && game.gone[key];
+    if (!back) return m.reply(box(NAME, ['You are already in. Just answer the next round!']));
+    delete game.gone[key];
+    game.players[key] = { ...back, streak: 0 };
+    if (!game.starter) game.starter = key;
+    return m.reply(box(NAME, [`👋 Welcome back${back.points ? `, your ${back.points} pts are kept` : ''}.`]));
 };
 
 const canControl = async (game, m, ctx) => game.starter === personKey(senderOf(m)) || ctx.access?.isOwner || (await ctx.access?.isAdmin?.());
@@ -255,7 +305,7 @@ const showMenu = (sock, m) => {
             `${P}sg artist <name>  → songs of one artist`,
             `${P}sg <anything>  → e.g. ${P}sg cheb khaled`,
             `${P}sg rank · ${P}sg rank global · ${P}sg me`,
-            `${P}sg skip · ${P}sg stop`
+            `${P}sg leave · ${P}sg join · ${P}sg skip · ${P}sg stop`
         ]),
         footer: config.bot.footer,
         buttonText: '🎵 Pick a pack',
@@ -290,6 +340,8 @@ const handleCommand = async (sock, m, args, ctx) => {
     if (!sub || sub === 'help' || sub === 'menu') return showMenu(sock, m);
     if (sub === 'rank' || sub === 'top') return showRank(m, String(args[1] || '').toLowerCase() === 'global');
     if (sub === 'me' || sub === 'stats') return showMe(m);
+    if (['leave', 'quit', 'exit', 'انسحاب', 'خروج'].includes(sub)) return game ? leave(game, m) : m.reply(box(NAME, ['No game running.']));
+    if (sub === 'join') return game ? join(game, m) : m.reply(box(NAME, ['No game running.']));
     if (sub === 'stop' || sub === 'end' || sub === 'skip') {
         if (!game) return m.reply(box(NAME, ['No game running.']));
         if (!(await canControl(game, m, ctx))) return m.reply(box(NAME, ['Only the player who started it or an admin can do that.']));
@@ -302,9 +354,14 @@ const handleCommand = async (sock, m, args, ctx) => {
 /** Typed answers: "1"–"4" or the song title (small typos are fine). */
 const handleTyped = async ({ sock, message: m }, api) => {
     const game = games.get(m.chat);
-    const cur = game?.current;
-    if (!cur?.startedAt || cur.ending || m.selectionId) return;
+    if (!game || game.over || m.selectionId) return;
     const text = String(m.text || '').trim();
+    if (LEAVE_WORDS.test(text) && api.allows(sock, m)) {
+        game.sock = sock;
+        return leave(game, m);
+    }
+    const cur = game.current;
+    if (!cur?.startedAt || cur.ending) return;
     if (!text || text.startsWith(P) || text.length > 80) return;
     let choice = -1;
     if (/^[1-4]$/.test(text)) choice = Number(text) - 1;
@@ -325,7 +382,7 @@ export default {
             aliases: ['sg', 'guesssong', 'songquiz', 'خمن'],
             category: 'games',
             description: 'Guess the song from a clip (packs, artist mode, rankings).',
-            usage: '[pack|artist <name>|<search>] [rounds] [easy|hard] | rank [global] | me | skip | stop',
+            usage: '[pack|artist <name>|<search>] [rounds] [easy|hard] | rank [global] | me | leave | join | skip | stop',
             examples: ['sg', 'sg arabic', 'sg rap 10 hard', 'sg artist Inkonnu', 'sg rank'],
             permission: 'public',
             cooldown: 0,
