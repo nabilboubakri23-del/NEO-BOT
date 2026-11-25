@@ -87,3 +87,39 @@ test('args and result order', () => {
     assert.deepEqual(orderResults(rows).map((r) => r.u), ['c', 'b', 'a']);
     assert.match(formatResults(rows, { mode: '3' }), /✅ 2 free · ❌ 1 taken/);
 });
+
+import { _resetIg, igCheckNames, igLookup } from '../systems/usernames/instagram.js';
+
+const fakeRes = (status, body, type = 'application/json') => ({
+    status, headers: { get: () => type }, json: async () => body
+});
+
+test('Instagram lookup reads taken / free / blocked', async () => {
+    assert.equal(await igLookup('eeee', { fetchImpl: async () => fakeRes(200, { data: { user: { id: '1' } } }) }), 'taken');
+    assert.equal(await igLookup('zq_x9', { fetchImpl: async () => fakeRes(404, {}) }), 'free');
+    assert.equal(await igLookup('zq_x9', { fetchImpl: async () => fakeRes(404, null, 'text/html') }), 'unknown');
+    assert.equal(await igLookup('abc', { fetchImpl: async () => fakeRes(429, {}) }), 'unknown');
+    assert.equal(await igLookup('abc', { fetchImpl: async () => { throw new Error('net'); } }), 'unknown');
+});
+
+test('Instagram filter: blind server is refused, results cached', async () => {
+    await _resetIg();
+    const blind = await igCheckNames(['aaa'], { worksImpl: async () => false, gap: false });
+    assert.equal(blind.blind, true);
+    let calls = 0;
+    const run = await igCheckNames(['eeee', 'q_zx'], { worksImpl: async () => true, gap: false, lookupImpl: async (u) => { calls += 1; return u === 'eeee' ? 'taken' : 'free'; } });
+    assert.deepEqual(run.results.map((r) => r.status), ['taken', 'free']);
+    const again = await igCheckNames(['eeee'], { worksImpl: async () => false, gap: false });
+    assert.equal(again.blind, false);
+    assert.equal(again.results[0].cached, true);
+    assert.equal(calls, 2);
+});
+
+test('search output lists only names free on Instagram and WhatsApp', () => {
+    const rows = [{ u: 'a_bc', score: 60, status: 'free' }, { u: 'xyz', score: 90, status: 'taken' }];
+    const text = formatResults(rows, { mode: 'semi', onlyFree: true, ig: true, igChecked: 40, igFree: 2 });
+    assert.match(text, /a_bc/);
+    assert.doesNotMatch(text, /xyz/);
+    assert.match(text, /40 checked on Instagram · 2 not on Instagram · ✅ 1 free/);
+    assert.equal(parseArgs(['3', 'ig:off']).ig, false);
+});

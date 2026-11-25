@@ -97,7 +97,11 @@ const randomCore = (len, f, rnd) => {
             return map.get(k);
         }).join('');
     }
-    return Array.from({ length: len }, () => pick(pool, rnd)).join('');
+    const chars = Array.from({ length: len }, () => pick(pool, rnd));
+    // Honour start/end while generating, so narrow filters still fill the pool.
+    if (f.start && f.start.length < len) chars.splice(0, f.start.length, ...f.start);
+    if (f.end && f.end.length < len) chars.splice(len - f.end.length, f.end.length, ...f.end);
+    return chars.join('').slice(0, len);
 };
 
 const semiForms = (abc) => [
