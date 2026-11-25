@@ -84,6 +84,8 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 | `.take <pack> \| [author]` (wm) | 👤 everyone | Re-label a sticker (pure JS, no ffmpeg). |
 | `.toimage` · `.tomp3` · `.togif` | 👤 everyone | Sticker → image, video / voice → MP3, video → GIF. |
 | `.round` (videonote, circle, دائرة) | 👤 everyone | Reply to a video → circular video message (centre square crop, sound kept, first 60 s). Needs ffmpeg. |
+| `.colortext <text>` (ct, لون) | 👤 everyone | Text on a coloured card: 16 colours or #hex, 6 fonts (4 Arabic), `s` for a sticker; buttons for next colour/font/sticker. |
+| `.wu <3\|4\|semi\|ai theme\|check names>` (username, يوزر) | 👑 owner | Finds WhatsApp @usernames with no account on them, ranked best → worst (local + AI score). Options `n:15` (max 25), `l`, `start:` `end:` `has:` `shape:aba`. 25 lookups a run, 200 a day, ~3 s apart. "Free" = no account found; reserved names can still be refused. |
 | **Downloads** | | |
 | `.tiktok <link>` (tt, تيكتوك) | 👤 everyone | TikTok video without watermark; works out of the box. |
 | `.mediafire <link>` (mf, ميديافاير) | 👤 everyone | File from a public MediaFire link. |
