@@ -88,15 +88,51 @@ export const formatFor = (platform, audio) => {
     return 'best[ext=mp4][height<=720]/best[ext=mp4]/best';
 };
 
-export const extractorArgs = (url, platform, proxy, audio = false) => [
+/** Known yt-dlp failures → a reason the user can act on. */
+export const classifyFailure = (stderr = '') => {
+    const t = String(stderr);
+    if (/confirm you.?re not a bot|Sign in to confirm/i.test(t)) return 'bot-check';
+    if (/age.?restrict|confirm your age|inappropriate for some users/i.test(t)) return 'age';
+    if (/Private video|This video is private|login required|requires? (a )?log ?in/i.test(t)) return 'private';
+    if (/members.only|Join this channel/i.test(t)) return 'members';
+    if (/not available in your country|geo.?restrict/i.test(t)) return 'geo';
+    if (/Video unavailable|has been removed|does not exist|404/i.test(t)) return 'unavailable';
+    if (/HTTP Error 429|Too Many Requests|rate.?limit/i.test(t)) return 'rate-limit';
+    return 'unknown';
+};
+
+export const FAILURE_TEXT = {
+    'bot-check': '⚠️ YouTube is asking this server to prove it is not a bot. It works from a home connection (Termux), or after the owner sets YT_COOKIES on the server.',
+    age: '⚠️ This video is age-restricted, so it cannot be downloaded without a signed-in account.',
+    private: '⚠️ This post is private or needs a login.',
+    members: '⚠️ This video is for channel members only.',
+    geo: '⚠️ This video is not available in the server\'s country.',
+    unavailable: '⚠️ This video is unavailable or was removed.',
+    'rate-limit': '⚠️ The platform is limiting requests from this server. Try again in a few minutes.',
+    unknown: '⚠️ Could not retrieve this public video. It may be unavailable or blocked by the platform.'
+};
+
+export const extractorArgs = (url, platform, proxy, audio = false, cookies = '') => [
     '--ignore-config', '--no-plugin-dirs', '--no-remote-components', '--no-cache-dir',
     '--no-playlist', '--skip-download', '--dump-single-json', '--no-warnings',
     '--socket-timeout', '15', '--retries', '0', '--extractor-retries', '0',
     '--js-runtimes', `node:${process.execPath}`, '--proxy', proxy,
     '--use-extractors', `${platform === 'youtube' ? 'youtube,youtube:tab' : platform},end`,
     '-f', formatFor(platform, audio),
+    ...(cookies ? ['--cookies', cookies] : []),
     '--', url
 ];
+
+/**
+ * Optional YouTube cookies from YT_COOKIES (Netscape cookies.txt text, raw or base64),
+ * written to a private temp file for one run. Use a spare account: it can be flagged.
+ */
+export const cookiesText = () => {
+    const raw = (process.env.YT_COOKIES || '').trim();
+    if (!raw) return '';
+    const text = /^[A-Za-z0-9+/=\s]+$/.test(raw) && !raw.includes('\t') ? Buffer.from(raw, 'base64').toString('utf8') : raw;
+    return /\t/.test(text) ? (text.startsWith('# Netscape') ? text : `# Netscape HTTP Cookie File\n${text}`) : '';
+};
 
 /** Bounded metadata-only extraction. No inherited credentials or configuration. */
 export const extractMedia = async (url, platform, { audio = false } = {}) => {
@@ -104,13 +140,20 @@ export const extractMedia = async (url, platform, { audio = false } = {}) => {
     const input = assertUrl(url, INPUT_HOSTS[platform]);
     if (active) throw new UserError('Another download is being prepared. Try again shortly.');
     active = true;
-    let proxy;
+    let proxy; let cookieDir; let stderrTail = '';
     try {
         const bin = await resolveYtDlp();
         if (!bin) throw new Error('yt-dlp missing');
         proxy = await startExtractorProxy(EXTRACTOR_HOSTS[platform]);
+        let cookieFile = '';
+        const jar = platform === 'youtube' ? cookiesText() : '';
+        if (jar) {
+            cookieDir = await mkdtemp(path.join(os.tmpdir(), 'neo-ck-'));
+            cookieFile = path.join(cookieDir, 'cookies.txt');
+            await writeFile(cookieFile, jar, { mode: 0o600 });
+        }
         const result = await new Promise((resolve, reject) => {
-            const proc = spawn(bin, extractorArgs(input, platform, proxy.url, audio), {
+            const proc = spawn(bin, extractorArgs(input, platform, proxy.url, audio, cookieFile), {
                 shell: false, detached: true, cwd: os.tmpdir(), env: { PATH: [path.dirname(bin), path.dirname(process.execPath), '/usr/bin', '/bin'].join(':'), HOME: '/nonexistent', LANG: 'C.UTF-8' },
                 stdio: ['ignore', 'pipe', 'pipe']
             });
@@ -118,7 +161,7 @@ export const extractMedia = async (url, platform, { audio = false } = {}) => {
             const stop = (error) => { if (failed) return; failed = true; try { process.kill(-proc.pid, 'SIGKILL'); } catch { proc.kill('SIGKILL'); } reject(error); };
             const timer = setTimeout(() => stop(new Error('Extraction timed out')), 65000);
             proc.stdout.on('data', data => { output += data; if (Buffer.byteLength(output) > 4 * 1024 * 1024) stop(new Error('Metadata too large')); });
-            proc.stderr.on('data', data => { stderrBytes += data.length; if (stderrBytes > 128 * 1024) stop(new Error('Diagnostic output too large')); });
+            proc.stderr.on('data', data => { stderrBytes += data.length; stderrTail = (stderrTail + data).slice(-2000); if (stderrBytes > 128 * 1024) stop(new Error('Diagnostic output too large')); });
             proc.on('error', error => { clearTimeout(timer); reject(error); });
             proc.on('close', code => {
                 clearTimeout(timer);
@@ -131,8 +174,15 @@ export const extractMedia = async (url, platform, { audio = false } = {}) => {
         return toExtracted(result, platform, audio);
     } catch (error) {
         if (error?.expose) throw error;
-        throw new UserError('Could not retrieve this public video. It may be unavailable or blocked by the platform.');
-    } finally { await proxy?.close(); active = false; }
+        const reason = classifyFailure(stderrTail);
+        console.log(`Extractor ${platform} failed: ${reason}${reason === 'unknown' ? ` (${String(stderrTail).split('\n').filter(Boolean).pop()?.slice(0, 200) || error?.message})` : ''}`);
+        const failure = new UserError(FAILURE_TEXT[reason]);
+        failure.reason = reason;
+        throw failure;
+    } finally {
+        await proxy?.close(); active = false;
+        if (cookieDir) rm(cookieDir, { recursive: true, force: true }).catch(() => {});
+    }
 };
 
 /** yt-dlp JSON → { url, parts[], title, ext, audio, duration }. Every media URL is host-checked. */

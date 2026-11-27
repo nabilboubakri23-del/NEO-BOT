@@ -100,3 +100,22 @@ test('.dl detects platforms by host only', async () => {
  assert.equal(detectPlatform('https://evil.example/youtube.com'), null);
  assert.equal(detectPlatform('not a link'), null);
 });
+
+test('extractor failures are classified and YouTube cookies are read safely', async () => {
+ const { classifyFailure, cookiesText, extractorArgs } = await import('../commands/download/.extractor.js');
+ assert.equal(classifyFailure('ERROR: [youtube] a: Sign in to confirm you’re not a bot.'), 'bot-check');
+ assert.equal(classifyFailure('ERROR: Private video'), 'private');
+ assert.equal(classifyFailure('ERROR: Video unavailable'), 'unavailable');
+ assert.equal(classifyFailure('something else'), 'unknown');
+ const old = process.env.YT_COOKIES;
+ try {
+  delete process.env.YT_COOKIES; assert.equal(cookiesText(), '');
+  const line = '.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tabc';
+  process.env.YT_COOKIES = line; assert.match(cookiesText(), /^# Netscape HTTP Cookie File\n\.youtube\.com\t/);
+  process.env.YT_COOKIES = Buffer.from(line).toString('base64'); assert.match(cookiesText(), /SID\tabc/);
+  process.env.YT_COOKIES = 'not cookies'; assert.equal(cookiesText(), '');
+ } finally { if (old === undefined) delete process.env.YT_COOKIES; else process.env.YT_COOKIES = old; }
+ const a = extractorArgs('https://youtu.be/x', 'youtube', 'http://127.0.0.1:1', false, '/tmp/c.txt');
+ assert.deepEqual(a.slice(a.indexOf('--cookies'), a.indexOf('--cookies') + 2), ['--cookies', '/tmp/c.txt']);
+ assert.equal(a.at(-2), '--');
+});

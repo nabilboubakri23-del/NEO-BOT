@@ -90,7 +90,7 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 | `.tiktok <link>` (tt, تيكتوك) | 👤 everyone | TikTok video without watermark; works out of the box. |
 | `.mediafire <link>` (mf, ميديافاير) | 👤 everyone | File from a public MediaFire link. |
 | `.app <name> [n]` (apk, تطبيق) | 👤 everyone | Search Android apps by name (Aptoide store); `[n]` downloads match number n. Only apps that passed the store's malware screening can be downloaded (screening is re-checked at download time; it is not publisher verification or a safety guarantee). |
-| `.yt <link>` · `.ytmp3 <link>` · `.play <name>` (youtube, يوتيوب) | 👤 everyone | YouTube through local yt-dlp: video up to 720p (H.264 + audio muxed with ffmpeg), audio as m4a, search by name. No external API; cobalt is only an audio fallback. |
+| `.yt <link>` · `.ytmp3 <link>` · `.play <name>` (youtube, يوتيوب) | 👤 everyone | YouTube through local yt-dlp: video up to 720p (H.264 + audio muxed with ffmpeg), audio as m4a, search by name. No external API. When YouTube bot-checks the server, audio falls back to the same song via Spotify; optional `YT_COOKIES` (Netscape cookies.txt, raw or base64, spare account) unlocks video. |
 | `.dl [mp3] <link>` (download, تحميل) | 👤 everyone | Detects the platform of any supported link (YouTube, Instagram, Facebook, TikTok, MediaFire, Pinterest, Spotify) and runs its downloader. |
 | `.play <name>` (شغل) | 👤 everyone | Search YouTube by name, download the first result's audio. Needs the backend. |
 | `.instagram <link>` (insta, انستا) · `.facebook <link>` (fb, فيسبوك) | 👤 everyone | Public Instagram / Facebook videos via a pinned local extractor, enabled separately after server verification. |
