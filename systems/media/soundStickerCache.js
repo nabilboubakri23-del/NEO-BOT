@@ -3,6 +3,7 @@ import events from '../../core/events.js';
 import docStore from '../database/docStore.js';
 import { child } from '../../core/logger.js';
 import { wireFields } from '../security/wireFields.js';
+import { unwrapContent } from '../../utils/media.js';
 
 /**
  * Remembers the sound of every sound sticker the bot sends or sees, from anyone,
@@ -78,11 +79,7 @@ export const latestSound = (chat) => fresh(latest.get(chat));
 export const clearSounds = () => { entries.clear(); latest.clear(); };
 
 /** Sticker content inside any wrapper (ephemeral, view once, edited, lottie/animated). */
-export const stickerOf = (content) => {
-    let c = normalizeMessageContent(content);
-    for (let i = 0; i < 3 && c?.lottieStickerMessage?.message; i++) c = normalizeMessageContent(c.lottieStickerMessage.message);
-    return c?.stickerMessage || null;
-};
+export const stickerOf = (content) => unwrapContent(content)?.stickerMessage || null;
 
 const seen = ({ message: m }) => {
     const audio = stickerOf(m?.raw?.message)?.audioMessage;
@@ -101,7 +98,7 @@ const diags = new Map(); // id → shape of recent stickers / unreadable message
 
 /** Shape of a message for troubleshooting: field names and numbers only. */
 export const describeShape = (message, upsertType = '') => {
-    const content = normalizeMessageContent(message);
+    const content = unwrapContent(message);
     const sticker = stickerOf(message);
     return {
         upsertType,

@@ -7,6 +7,7 @@ import {
     jidNormalizedUser,
     normalizeMessageContent
 } from 'baileys';
+import { unwrapContent } from '../utils/media.js';
 import config from '../config/config.js';
 import commandHandler from './commandHandler.js';
 import { child } from './logger.js';
@@ -89,7 +90,7 @@ const MEDIA_TYPES = {
 
 /** Normalizes a raw Baileys message into a NEO BOT message object. */
 const serialize = (sock, raw) => {
-    const content = normalizeMessageContent(raw.message);
+    const content = unwrapContent(raw.message);
     if (!content) return null;
     const type = getContentType(content);
     if (!type || type === 'protocolMessage' || type === 'reactionMessage') return null;

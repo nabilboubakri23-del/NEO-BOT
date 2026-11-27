@@ -117,3 +117,23 @@ test('sound stickers are recorded straight from every socket upsert type', async
     assert.equal(cache.latestSound('5@s.whatsapp.net').audio.seconds, 3);
     cache.clearSounds();
 });
+
+test('sound stickers sent from the WhatsApp app (audioStickerMessage, field 134) keep their sound', async () => {
+    await import('../systems/security/stickerAudioProtocol.js');
+    const { audioStickerReady } = await import('../systems/security/audioStickerProtocol.js');
+    assert.ok(audioStickerReady());
+    const { proto } = await import('baileys');
+    const cache = await import('../systems/media/soundStickerCache.js');
+    const { findMedia } = await import('../utils/media.js');
+    cache.clearSounds();
+    const wire = proto.Message.encode({ messageContextInfo: {}, audioStickerMessage: { message: { stickerMessage: { mimetype: 'image/webp', audioMessage: { mediaKey: Buffer.alloc(32, 9), directPath: '/w', seconds: 8 } } } } }).finish();
+    assert.ok(wire.includes(0xb2)); // tag 134 → varint b2 08
+    const message = proto.Message.decode(wire);
+    assert.equal(message.audioStickerMessage.message.stickerMessage.audioMessage.seconds, 8);
+    const key = { remoteJid: '7@g.us', id: 'APP1', fromMe: false };
+    cache.recordUpsert({ type: 'notify', messages: [{ key, message }] });
+    assert.equal(cache.recallSound('APP1').audio.seconds, 8);
+    assert.equal(findMedia({ raw: { key, message } }, ['sticker']).kind, 'sticker');
+    assert.equal(proto.Message.toObject(message).audioStickerMessage.message.stickerMessage.mimetype, 'image/webp');
+    cache.clearSounds();
+});

@@ -21,8 +21,22 @@ const KINDS = Object.freeze({
 /** Largest file the bot downloads (protects small hosts such as Render free, 512 MB). */
 export const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
 
+/**
+ * normalizeMessageContent plus sticker wrappers the pinned library does not unwrap:
+ * audioStickerMessage (sound stickers from the WhatsApp app) and lottieStickerMessage.
+ */
+export const unwrapContent = (rawContent) => {
+    let content = normalizeMessageContent(rawContent);
+    for (let i = 0; i < 4; i++) {
+        const inner = content?.audioStickerMessage?.message || content?.lottieStickerMessage?.message;
+        if (!inner) break;
+        content = normalizeMessageContent(inner);
+    }
+    return content;
+};
+
 const describe = (key, rawContent) => {
-    const content = normalizeMessageContent(rawContent);
+    const content = unwrapContent(rawContent);
     const type = content && getContentType(content);
     const kind = KINDS[type];
     if (!kind) return null;
