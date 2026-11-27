@@ -45,17 +45,58 @@ test('verification gate stays closed for unknown, checking and failed states', a
    const {verifyExtractorOnce}=await import(${JSON.stringify(source)});
    assert.deepEqual(await verifyExtractorOnce(),{});
    const pending=await store.open('downloadVerification');
-   assert.deepEqual(pending.campaigns['yt-dlp-2026.10.26-adapter-2'],{});`;
-  const result=spawnSync(process.execPath,['--input-type=module','-e',script],{cwd:temporary,encoding:'utf8',timeout:5000,env:{PATH:process.env.PATH}});
+   assert.deepEqual(pending.campaigns['yt-dlp-2026.11.23-adapter-3'],{});`;
+  const result=spawnSync(process.execPath,['--input-type=module','-e',script],{cwd:temporary,encoding:'utf8',timeout:5000,env:{PATH:'/nonexistent-bin'}});
   assert.equal(result.status,0,result.stdout+result.stderr);
   assert.match(result.stdout,/setup pending/);
  }finally{await rm(temporary,{recursive:true,force:true});}
  await assert.rejects(()=>requireVerifiedExtractor('youtube'),/not enabled/);
  const doc=await store.open('downloadVerification');
- doc.campaigns={'yt-dlp-2026.10.26-adapter-2':{youtube:{state:'checking'}}};
+ doc.campaigns={'yt-dlp-2026.11.23-adapter-3':{youtube:{state:'checking'}}};
  await assert.rejects(()=>requireVerifiedExtractor('youtube'),/not enabled/);
- doc.campaigns['yt-dlp-2026.10.26-adapter-2'].youtube.state='failed';
+ doc.campaigns['yt-dlp-2026.11.23-adapter-3'].youtube.state='failed';
  await assert.rejects(()=>requireVerifiedExtractor('youtube'),/failed/);
- doc.campaigns['yt-dlp-2026.10.26-adapter-2'].youtube.state='verified';
+ doc.campaigns['yt-dlp-2026.11.23-adapter-3'].youtube.state='verified';
  await requireVerifiedExtractor('youtube');
+});
+
+test('youtube video picks split H.264 + m4a with smaller fallbacks; audio picks m4a', async () => {
+ const { formatFor } = await import('../commands/download/.extractor.js');
+ const video = formatFor('youtube', false);
+ assert.match(video, /^bv\*\[ext=mp4\]\[vcodec\^=avc1\]\[height<=720\]/);
+ assert.match(video, /height<=360\]\+ba\[ext=m4a\]/);
+ assert.match(formatFor('youtube', true), /^ba\[ext=m4a\]/);
+ assert.equal(formatFor('instagram', false), 'best[ext=mp4][height<=720]/best[ext=mp4]/best');
+});
+
+test('extracted results keep both tracks, check every host and refuse oversized media', async () => {
+ const { toExtracted } = await import('../commands/download/.extractor.js');
+ const ok = toExtracted({ title: 'x', ext: 'mp4', requested_formats: [
+  { url: 'https://rr1---sn.googlevideo.com/videoplayback?a=1', ext: 'mp4', vcodec: 'avc1', acodec: 'none', filesize: 1000 },
+  { url: 'https://rr1---sn.googlevideo.com/videoplayback?a=2', ext: 'm4a', vcodec: 'none', acodec: 'mp4a', filesize: 500 }] }, 'youtube');
+ assert.equal(ok.parts.length, 2); assert.equal(ok.parts[0].video, true); assert.equal(ok.parts[1].audio, true);
+ assert.throws(() => toExtracted({ url: 'https://evil.example/v.mp4' }, 'youtube'));
+ assert.throws(() => toExtracted({ url: 'https://rr1.googlevideo.com/v', filesize: 200 * 1024 * 1024 }, 'youtube'), /Too large/);
+ assert.throws(() => toExtracted({ _type: 'playlist' }, 'youtube'));
+});
+
+test('failed checks are retried after the retry window; verified stays', async () => {
+ const { isSettled, RETRY_AFTER_MS } = await import('../commands/download/.verification.js');
+ const now = Date.now();
+ assert.equal(isSettled(undefined, now), false);
+ assert.equal(isSettled({ state: 'verified', at: new Date(0).toISOString() }, now), true);
+ assert.equal(isSettled({ state: 'failed', at: new Date(now - 1000).toISOString() }, now), true);
+ assert.equal(isSettled({ state: 'failed', at: new Date(now - RETRY_AFTER_MS - 1).toISOString() }, now), false);
+ assert.equal(isSettled({ state: 'checking', at: new Date(now - RETRY_AFTER_MS - 1).toISOString() }, now), false);
+});
+
+test('.dl detects platforms by host only', async () => {
+ const { detectPlatform } = await import('../commands/download/dl.js');
+ assert.equal(detectPlatform('https://youtu.be/abc'), 'youtube');
+ assert.equal(detectPlatform('https://music.youtube.com/watch?v=a'), 'youtube');
+ assert.equal(detectPlatform('https://vt.tiktok.com/x'), 'tiktok');
+ assert.equal(detectPlatform('https://fb.watch/x'), 'facebook');
+ assert.equal(detectPlatform('https://pin.it/x'), 'pinterest');
+ assert.equal(detectPlatform('https://evil.example/youtube.com'), null);
+ assert.equal(detectPlatform('not a link'), null);
 });

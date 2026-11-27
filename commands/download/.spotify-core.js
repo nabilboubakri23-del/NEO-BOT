@@ -1,12 +1,10 @@
-import { access } from 'node:fs/promises';
-import { constants } from 'node:fs';
 import { UserError } from '../../utils/errors.js';
 import { withTimeout } from '../../utils/async.js';
 import {
     downloadFile, fetchText, isCobaltConfigured, cobaltDownload, MAX_MEDIA_BYTES,
     sanitizeFilename, spotifyDownload, spotifySearch, spotifyInfo, youtubeSearch, sniffKind
 } from './.lib.js';
-import { extractMedia, EXTRACTOR_HOSTS, binaryPath } from './.extractor.js';
+import { extractMedia, fetchExtracted, hasYtDlp } from './.extractor.js';
 
 /**
  * Spotify acquisition core: input parsing, metadata, and audio retrieval with a
@@ -92,8 +90,6 @@ export const trackInfo = async (url) => {
     return { id, title: info.title || 'Spotify track', artist: '', album: '', duration: '', cover: /^https:\/\/i\.scdn\.co\//.test(info.thumbnail || '') ? info.thumbnail : '', url };
 };
 
-const hasYtDlp = () => access(binaryPath, constants.X_OK).then(() => true, () => false);
-
 const viaSpotimate = async (track) => {
     const resolved = await withTimeout(spotifyDownload(track.url), 40_000, 'converter timeout');
     const file = await withTimeout(downloadFile(resolved.url, { allowHosts: ['spotimate.app'], maxBytes: MAX_MEDIA_BYTES, expect: ['audio'] }), 60_000, 'file timeout');
@@ -111,9 +107,9 @@ const viaYtDlp = async (track) => {
     if (!(await hasYtDlp())) throw new Error('yt-dlp not installed');
     const id = await youtubeIdFor(track);
     const result = await extractMedia(`https://www.youtube.com/watch?v=${id}`, 'youtube', { audio: true });
-    const file = await withTimeout(downloadFile(result.url, { allowHosts: EXTRACTOR_HOSTS.youtube, maxBytes: MAX_MEDIA_BYTES, expect: ['audio', 'video'] }), 60_000, 'file timeout');
-    const m4a = result.ext === 'm4a';
-    return { buffer: file.buffer, mimetype: m4a ? 'audio/mp4' : 'audio/mpeg', ext: m4a ? 'm4a' : 'mp3', source: 'youtube' };
+    const file = await withTimeout(fetchExtracted(result, 'youtube'), 60_000, 'file timeout');
+    const m4a = file.mimetype === 'audio/mp4';
+    return { buffer: file.buffer, mimetype: file.mimetype, ext: m4a ? 'm4a' : 'mp3', source: 'youtube' };
 };
 
 const viaCobalt = async (track) => {

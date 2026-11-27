@@ -1,13 +1,14 @@
-import { access } from 'node:fs/promises';
-import { constants } from 'node:fs';
 import docStore from '../../systems/database/docStore.js';
-import { extractMedia, EXTRACTOR_HOSTS, binaryPath } from './.extractor.js';
-import { downloadFile, MAX_MEDIA_BYTES } from './.lib.js';
+import { extractMedia, fetchExtracted, resolveYtDlp } from './.extractor.js';
 import { UserError } from '../../utils/errors.js';
 
 // One campaign per adapter revision, persisted in the existing database.
 // A restart reuses completed states and does not download the samples again.
-const REVISION = 'yt-dlp-2026.10.26-adapter-2';
+export const REVISION = 'yt-dlp-2026.11.23-adapter-3';
+// A failed or interrupted check is retried on the next start after this long.
+export const RETRY_AFTER_MS = 6 * 60 * 60 * 1000;
+export const isSettled = (entry, now = Date.now()) => entry?.state === 'verified' ||
+ (Boolean(entry?.state) && now - Date.parse(entry.at || 0) < RETRY_AFTER_MS);
 const SAMPLES = {
  youtube: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
  instagram: 'https://www.instagram.com/reel/CDUMkliABpa/',
@@ -29,19 +30,20 @@ export const verifyExtractorOnce = () => running ||= (async () => {
  const states = document.campaigns[REVISION] ||= {};
  // A code deploy can start once before a Blueprint build-command sync finishes.
  // Missing tooling is a setup failure, never a tested platform failure.
- try { await access(binaryPath, constants.X_OK); } catch {
+ if (!(await resolveYtDlp())) {
   console.log('Download verification setup pending: executable unavailable.');
   return states;
  }
  for (const [platform, url] of Object.entries(SAMPLES)) {
   // An interrupted check is unknown, not safe to repeat automatically or enable.
-  if (states[platform]) continue;
+  if (isSettled(states[platform])) continue;
   states[platform] = { state: 'checking', at: new Date().toISOString() };
   await persist(document);
   try {
    const result = await extractMedia(url, platform);
-   const file = await downloadFile(result.url, { allowHosts: EXTRACTOR_HOSTS[platform], maxBytes: MAX_MEDIA_BYTES, expect: ['video'] });
-   states[platform] = { state: 'verified', bytes: file.size, at: new Date().toISOString() };
+   const file = await fetchExtracted(result, platform);
+   if (file.kind !== 'video') throw new Error('not a video');
+   states[platform] = { state: 'verified', bytes: file.buffer.length, at: new Date().toISOString() };
   } catch {
    states[platform] = { state: 'failed', at: new Date().toISOString() };
   }

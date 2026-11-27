@@ -90,7 +90,8 @@ Alternatively set `AUTH_METHOD=qr` or `AUTH_METHOD=phone` + `PAIRING_NUMBER`.
 | `.tiktok <link>` (tt, تيكتوك) | 👤 everyone | TikTok video without watermark; works out of the box. |
 | `.mediafire <link>` (mf, ميديافاير) | 👤 everyone | File from a public MediaFire link. |
 | `.app <name> [n]` (apk, تطبيق) | 👤 everyone | Search Android apps by name (Aptoide store); `[n]` downloads match number n. Only apps that passed the store's malware screening can be downloaded (screening is re-checked at download time; it is not publisher verification or a safety guarantee). |
-| `.yt <link>` · `.ytmp3 <link>` (youtube, يوتيوب) | 👤 everyone | YouTube public video (up to 720p, often 360p without merging); enabled only after server verification. Audio MP3 still needs the optional backend. |
+| `.yt <link>` · `.ytmp3 <link>` · `.play <name>` (youtube, يوتيوب) | 👤 everyone | YouTube through local yt-dlp: video up to 720p (H.264 + audio muxed with ffmpeg), audio as m4a, search by name. No external API; cobalt is only an audio fallback. |
+| `.dl [mp3] <link>` (download, تحميل) | 👤 everyone | Detects the platform of any supported link (YouTube, Instagram, Facebook, TikTok, MediaFire, Pinterest, Spotify) and runs its downloader. |
 | `.play <name>` (شغل) | 👤 everyone | Search YouTube by name, download the first result's audio. Needs the backend. |
 | `.instagram <link>` (insta, انستا) · `.facebook <link>` (fb, فيسبوك) | 👤 everyone | Public Instagram / Facebook videos via a pinned local extractor, enabled separately after server verification. |
 | `.spotify [song name or track link]` (سبوتيفاي) | 👤 everyone | Opens an Arabic button menu; searches by song name and artist, shows up to five swipeable cover cards, and downloads only the selected track. Track links still work directly. Free third-party MP3 converter, not an official Spotify download. |
@@ -379,7 +380,7 @@ check and WhatsApp check are still needed after configuring the real host key.
 
 ## Download backend (optional)
 
-YouTube audio commands (.ytmp3 and .play) still use a [cobalt-compatible](https://github.com/imputnet/cobalt) download
+Optional audio fallback for .ytmp3 and .play: a [cobalt-compatible](https://github.com/imputnet/cobalt) download
 backend: set `DOWNLOAD_API_BASE` on the server (plus `DOWNLOAD_API_KEY` when the
 instance requires a key). TikTok, MediaFire and `.app` work without any backend.
 Every user URL is checked against a per-platform allowlist, and redirects are
@@ -422,7 +423,7 @@ Flow: `.settings` → section → setting → ✅ ON / ⛔ OFF (or a value from 
 
 ### Local video extractor
 
-The Render build installs yt-dlp 2026.10.26 from its official Linux x64 release,
+The Render build installs yt-dlp 2026.11.23 from its official Linux x64 release (on Termux/ARM run `pip install yt-dlp`, or set `YTDLP_PATH`; a yt-dlp on PATH is used),
 checking a pinned SHA-256 before use. No new service is created. Video commands
 for YouTube, Instagram and Facebook stay off until a one-time runtime campaign
 retrieves a fixed public test video for that platform. Results are stored in the
