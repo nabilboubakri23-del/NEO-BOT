@@ -10,6 +10,8 @@ import { sendButtons, sendListMenu } from '../../systems/menus/interactiveMenu.j
 import { FlowSessions } from '../../systems/interaction/flowSessions.js';
 import { CANCEL_WORDS, captureInput } from '../../systems/interaction/inputCapture.js';
 import { defaultMeta, makeSticker } from '../../systems/media/sticker.js';
+import { latestSound, stickerOf } from '../../systems/media/soundStickerCache.js';
+import { convert } from '../../systems/media/ffmpeg.js';
 import { soundOf, extractAudio, parseClipArgs, prepareClip, sendSoundSticker, MAX_SECONDS, MIN_SECONDS } from '../../systems/media/soundSticker.js';
 import { downloadFile } from '../download/.lib.js';
 import { acquireAudio, classifyInput, searchTracks, toTrackUrl, trackInfo } from '../download/.spotify-core.js';
@@ -22,7 +24,8 @@ import { acquireAudio, classifyInput, searchTracks, toTrackUrl, trackInfo } from
  *   .ss          (reply to an audio or voice note)            that audio on a sticker
  *   .ss          (with a picture, no song)                    buttons: Spotify song / my own audio
  *   .ss <song> | 1:05 | 8         choose the start and length (2-20 s); "auto" = loudest part
- *   .ss extract  (reply to a sound sticker)                  get its sound back as a voice note
+ *   .ss extract [mp3]  (reply to any sound sticker, from anyone; no reply = latest one in the chat)
+ *                                                            get its sound back as a voice note (or MP3)
  *   .ss cancel
  *
  * Every sticker carries the bot's pack/author. The flow uses the shared FlowSessions:
@@ -90,7 +93,7 @@ const GUIDE = () => [
     `🖼️ Image/sticker + ${P()}ss <song>  → your picture`,
     `🎤 Reply to a voice note with ${P()}ss`,
     `✂️ ${P()}ss <song> | 1:05 | 8  → start and length`,
-    `🔊 ${P()}ss extract  → sound of a sound sticker`,
+    `🔊 ${P()}ss extract [mp3]  → sound of any sound sticker (reply, or the latest in chat)`,
     '',
     `Clips are ${MIN_SECONDS}-${MAX_SECONDS} s (10 s by default).`
 ];
@@ -238,19 +241,45 @@ const fromSong = async (sock, m, s, text) => {
     });
 };
 
-const extract = async (sock, m, ref = null) => {
-    const sound = ref || soundOf(findMedia(m, ['sticker']));
-    if (!sound) throw new UserError('Reply to a sound sticker to get its sound.');
+/** Sticker to read: the command/reply sticker, else (no reply) the latest sound sticker in this chat. */
+const soundToExtract = (m) => {
+    const media = findMedia(m, ['sticker']) || lottieReply(m);
+    if (media) {
+        const sound = soundOf(media);
+        if (!sound) throw new UserError('That sticker has no sound.');
+        return sound;
+    }
+    if (m.quoted) throw new UserError('Reply to a sound sticker to get its sound.');
+    const last = latestSound(m.chat);
+    if (!last) throw new UserError('Reply to a sound sticker to get its sound (no recent one in this chat).');
+    return { ...last, alternatives: [last] };
+};
+
+// Lottie (animated) sound stickers are wrapped, so findMedia does not see them as stickers.
+const lottieReply = (m) => {
+    const sticker = m.quoted?.message ? stickerOf(m.quoted.message) : null;
+    return sticker ? { kind: 'sticker', key: m.quoted.key, message: { stickerMessage: sticker } } : null;
+};
+
+const extract = async (sock, m, ref = null, mp3 = false) => {
+    const sound = ref || soundToExtract(m);
     await m.react?.('🔊');
     const ogg = await extractAudio(sock, sound.key, sound.audio, sound.alternatives);
-    await sock.sendMessage(m.chat, { audio: ogg, mimetype: 'audio/ogg; codecs=opus', ptt: true }, { quoted: m.raw });
+    if (mp3) {
+        const audio = await convert(ogg, { inExt: 'ogg', outExt: 'mp3', args: (i, o) => ['-i', i, '-c:a', 'libmp3lame', '-b:a', '128k', o], timeoutMs: 60_000 });
+        await sock.sendMessage(m.chat, { audio, mimetype: 'audio/mpeg', fileName: 'sound-sticker.mp3' }, { quoted: m.raw });
+    } else {
+        await sock.sendMessage(m.chat, { audio: ogg, mimetype: 'audio/ogg; codecs=opus', ptt: true }, { quoted: m.raw });
+    }
+    await m.react?.('✅');
 };
 
 /** Entry point shared by .soundsticker and `.sticker song …`. */
 export const start = async (sock, m, text = '') => {
     const input = String(text || '').trim();
     if (CANCEL_WORDS.test(input)) return cancel(m);
-    if (/^(extract|sound|استخراج)$/i.test(input)) return extract(sock, m);
+    const ex = input.match(/^(extract|sound|استخراج)(?:\s+(mp3|audio|ملف))?$/i);
+    if (ex) return extract(sock, m, null, Boolean(ex[2]));
     const visualMedia = findMedia(m, ['image', 'video', 'sticker']);
     const audioMedia = audioFrom(m);
     if (!input && !visualMedia && !audioMedia) return home(sock, m);
@@ -336,8 +365,8 @@ export default {
     category: 'media',
     permission: 'public',
     description: 'Stickers that play sound: a picture or song cover with a Spotify clip or your own audio.',
-    usage: '[song | start | seconds]  (with or replying to an image, sticker or audio)  |  extract  |  cancel',
-    examples: ['ss', 'ss Blinding Lights The Weeknd', 'ss Shape of You | 0:45 | 8', 'ss extract'],
+    usage: '[song | start | seconds]  (with or replying to an image, sticker or audio)  |  extract [mp3]  |  cancel',
+    examples: ['ss', 'ss Blinding Lights The Weeknd', 'ss Shape of You | 0:45 | 8', 'ss extract', 'ss extract mp3'],
     cooldown: 3,
     minArgs: 0,
 

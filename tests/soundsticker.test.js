@@ -87,3 +87,19 @@ test('soundOf falls back to the remembered sound when a reply copy drops it', as
     assert.equal(soundOf({ kind: 'sticker', key: raw.key, message: { stickerMessage: {} } }).audio.seconds, 5);
     clearSounds();
 });
+
+test('sound stickers from anyone are remembered per chat, unwrapped and saved across restarts', async () => {
+    const { soundOf } = await import('../systems/media/soundSticker.js');
+    const cache = await import('../systems/media/soundStickerCache.js');
+    const events = (await import('../core/events.js')).default;
+    cache.clearSounds();
+    const chat = '120363000000000001@g.us';
+    // A lottie (animated) sound sticker sent by another member, inside an ephemeral wrapper.
+    const raw = { key: { remoteJid: chat, id: 'LOTTIE1', fromMe: false, participant: '9@s.whatsapp.net' },
+        message: { ephemeralMessage: { message: { lottieStickerMessage: { message: { stickerMessage: { audioMessage: { mediaKey: Buffer.alloc(32, 4), directPath: '/l', seconds: 6 } } } } } } } };
+    await events.emit('message', { sock: {}, message: { raw } });
+    assert.equal(cache.latestSound(chat).audio.seconds, 6);
+    assert.equal(soundOf({ kind: 'sticker', key: raw.key, message: raw.message }).audio.seconds, 6);
+    assert.equal(cache.latestSound('other@g.us'), null);
+    assert.ok(cache.stickerOf(raw.message));
+});

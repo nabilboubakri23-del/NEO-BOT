@@ -61,7 +61,7 @@ export const downloadYoutube = async (sock, message, url, { audio = false, query
 
 export const yt = {
     name: 'yt',
-    aliases: ['youtube', 'ytdl', 'ytmp4', 'ytv', 'يوتيوب'],
+    aliases: ['youtube', 'ytdl', 'ytmp4', 'ytv', 'yt-dlp', 'ytdlp', 'يوتيوب'],
     category: 'download',
     description: 'Download a public YouTube video (up to 720p).',
     usage: '<youtube link>',

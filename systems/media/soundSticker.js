@@ -3,7 +3,7 @@ import { child } from '../../core/logger.js';
 import { UserError } from '../../utils/errors.js';
 import { convert } from './ffmpeg.js';
 import { stickerAudioReady } from '../security/stickerAudioProtocol.js';
-import { recallSound, rememberSound } from './soundStickerCache.js';
+import { recallSound, rememberSound, stickerOf } from './soundStickerCache.js';
 
 /**
  * Sound stickers: a WebP sticker that carries a short Opus voice clip inside
@@ -142,7 +142,7 @@ export const prepareClip = async (buffer, ext, { start = null, seconds = DEFAULT
 };
 
 /** The audio clip inside a received sound sticker, or null. */
-export const embeddedAudio = (content) => content?.stickerMessage?.audioMessage || null;
+export const embeddedAudio = (content) => stickerOf(content)?.audioMessage || null;
 
 /**
  * Sound of a found sticker media (utils/media findMedia result): the clip it carries
