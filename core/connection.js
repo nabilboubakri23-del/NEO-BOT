@@ -1,4 +1,5 @@
 import '../systems/security/stickerAudioProtocol.js';
+import '../systems/security/chatThemeProtocol.js';
 import { applyChannelForward } from '../systems/branding/channelForward.js';
 import governor, { applySendGovernor } from '../systems/antiban/index.js';
 import { EventEmitter } from 'node:events';
