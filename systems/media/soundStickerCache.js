@@ -2,6 +2,7 @@ import { normalizeMessageContent, proto } from 'baileys';
 import events from '../../core/events.js';
 import docStore from '../database/docStore.js';
 import { child } from '../../core/logger.js';
+import { wireFields } from '../security/wireFields.js';
 
 /**
  * Remembers the sound of every sound sticker the bot sends or sees, from anyone,
@@ -95,11 +96,48 @@ const seen = ({ message: m }) => {
  * the socket: no plugin barrier, age limit or filter can make the cache miss one.
  */
 const watched = new WeakSet();
-export const recordUpsert = ({ messages } = {}) => {
+const DIAG_MAX = 40;
+const diags = new Map(); // id → shape of recent stickers / unreadable messages (no keys, no media)
+
+/** Shape of a message for troubleshooting: field names and numbers only. */
+export const describeShape = (message, upsertType = '') => {
+    const content = normalizeMessageContent(message);
+    const sticker = stickerOf(message);
+    return {
+        upsertType,
+        types: Object.keys(message || {}),
+        inner: content && content !== message ? Object.keys(content) : [],
+        wire: wireFields(message) || [],
+        sticker: sticker ? {
+            wire: wireFields(sticker) || [],
+            audio: Boolean(sticker.audioMessage),
+            audioKey: Boolean(sticker.audioMessage?.mediaKey),
+            mimetype: sticker.mimetype || '',
+            lottie: Boolean(sticker.isLottie),
+            animated: Boolean(sticker.isAnimated)
+        } : null
+    };
+};
+
+const noteShape = (raw, type) => {
+    const msg = raw?.message;
+    const keys = Object.keys(msg || {}).filter((k) => !['messageContextInfo', 'senderKeyDistributionMessage'].includes(k));
+    if (!raw?.key?.id || (!stickerOf(msg) && keys.length)) return;
+    diags.delete(raw.key.id);
+    diags.set(raw.key.id, { chat: raw.key.remoteJid, at: Date.now(), stub: raw.messageStubType || 0, ...describeShape(msg, type) });
+    while (diags.size > DIAG_MAX) diags.delete(diags.keys().next().value);
+};
+
+export const shapeOf = (id) => diags.get(id) || null;
+export const recentShapes = (chat, n = 3) => [...diags.entries()].filter(([, d]) => d.chat === chat).slice(-n).map(([id, d]) => ({ id, ...d }));
+
+export const recordUpsert = ({ messages, type } = {}) => {
     for (const raw of messages || []) {
         try {
+            noteShape(raw, type);
             const audio = stickerOf(raw?.message)?.audioMessage;
             if (audio && raw.key?.id && !entries.has(raw.key.id)) rememberSound(raw.key, audio);
+            if (stickerOf(raw?.message) && !audio) log.info({ id: raw.key?.id, shape: describeShape(raw.message, type) }, 'Sticker without embedded sound.');
         } catch { /* never break the socket */ }
     }
 };

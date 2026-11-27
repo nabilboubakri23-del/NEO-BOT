@@ -10,7 +10,7 @@ import { sendButtons, sendListMenu } from '../../systems/menus/interactiveMenu.j
 import { FlowSessions } from '../../systems/interaction/flowSessions.js';
 import { CANCEL_WORDS, captureInput } from '../../systems/interaction/inputCapture.js';
 import { defaultMeta, makeSticker } from '../../systems/media/sticker.js';
-import { latestSound, stickerOf } from '../../systems/media/soundStickerCache.js';
+import { latestSound, stickerOf, describeShape, shapeOf, recentShapes } from '../../systems/media/soundStickerCache.js';
 import { convert } from '../../systems/media/ffmpeg.js';
 import { soundOf, extractAudio, parseClipArgs, prepareClip, sendSoundSticker, MAX_SECONDS, MIN_SECONDS } from '../../systems/media/soundSticker.js';
 import { downloadFile } from '../download/.lib.js';
@@ -274,10 +274,26 @@ const extract = async (sock, m, ref = null, mp3 = false) => {
     await m.react?.('✅');
 };
 
+const fmtShape = (label, d) => d ? [
+    `${label}: ${d.types.join(', ') || '(empty)'}${d.inner.length ? ` → ${d.inner.join(', ')}` : ''}`,
+    `  wire ${d.wire.join(',') || '-'}${d.upsertType ? ` · ${d.upsertType}` : ''}${d.stub ? ` · stub ${d.stub}` : ''}`,
+    d.sticker && `  sticker wire ${d.sticker.wire.join(',') || '-'} · audio ${d.sticker.audio ? (d.sticker.audioKey ? 'yes' : 'no key') : 'no'} · ${d.sticker.mimetype || '?'}${d.sticker.lottie ? ' · lottie' : ''}${d.sticker.animated ? ' · animated' : ''}`
+].filter(Boolean) : [`${label}: not seen by the bot`];
+
+/** `.ss inspect` (reply to a sticker): what the bot received, to troubleshoot sound stickers. */
+const inspect = async (m) => {
+    const id = m.quoted?.key?.id;
+    const lines = id
+        ? [...fmtShape('Reply copy', m.quoted?.message ? describeShape(m.quoted.message) : null), ...fmtShape('Original', shapeOf(id))]
+        : recentShapes(m.chat).flatMap((d) => fmtShape(d.id.slice(0, 8), d));
+    await m.reply(box('SOUND STICKER CHECK', lines.length ? lines : ['No stickers seen in this chat yet.']));
+};
+
 /** Entry point shared by .soundsticker and `.sticker song …`. */
 export const start = async (sock, m, text = '') => {
     const input = String(text || '').trim();
     if (CANCEL_WORDS.test(input)) return cancel(m);
+    if (/^(inspect|debug|فحص)$/i.test(input)) return inspect(m);
     const ex = input.match(/^(extract|sound|استخراج)(?:\s+(mp3|audio|ملف))?$/i);
     if (ex) return extract(sock, m, null, Boolean(ex[2]));
     const visualMedia = findMedia(m, ['image', 'video', 'sticker']);

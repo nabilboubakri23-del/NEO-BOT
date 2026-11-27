@@ -33,13 +33,16 @@ export function installStickerAudioProtocol() {
         const start = reader.pos;
         const out = original.decode.call(this, reader, length, ...rest);
         const scan = Reader.create(reader.buf.subarray(start, reader.pos));
+        const seen = [];
         while (scan.pos < scan.len) {
             const tag = scan.uint32();
+            if (!seen.includes(tag >>> 3)) seen.push(tag >>> 3);
             if ((tag >>> 3) === 26) {
                 if ((tag & 7) !== 2) throw new Error('Invalid embedded sticker audio wire type.');
                 out.audioMessage = A.decode(scan, scan.uint32());
             } else scan.skipType(tag & 7);
         }
+        try { Object.defineProperty(out, Symbol.for('neo.wireFields'), { value: seen, enumerable: false }); } catch { /* diagnostics only */ }
         return out;
     };
     T.fromObject = function (value) {
