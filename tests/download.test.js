@@ -340,3 +340,16 @@ test('downloadFile: declared and streamed caps plus type checks are enforced', a
     scenario = { chunks: [Buffer.from('ID3fake audio')] };
     await assert.rejects(() => lib.downloadFile('https://public.example/x', { expect: ['video'] }), /expected type/i);
 });
+
+test('.app search results become a pick list of screened apps only', async () => {
+ const { resultsMenu } = await import('../commands/download/app.js');
+ const apps = [
+  { name: 'Good', packageName: 'com.good.app', version: '1.0', size: 1024 * 1024, trusted: true },
+  { name: 'Bad', packageName: 'com.bad.app', version: '2.0', size: 0, trusted: false },
+  { name: 'Weird', packageName: '../etc', version: '1', size: 0, trusted: true }
+ ];
+ const { menu, text } = resultsMenu('good', apps, '.');
+ assert.deepEqual(menu.sections[0].rows.map((r) => r.id), ['app:get:com.good.app']);
+ assert.match(text, /\.app good <number>/);
+ assert.equal(resultsMenu('bad', [apps[1]]).menu, null);
+});
