@@ -90,7 +90,27 @@ const seen = ({ message: m }) => {
     if (quoted && m.quoted.key?.id && !entries.has(m.quoted.key.id)) rememberSound(m.quoted.key, quoted);
 };
 
+/**
+ * Every upsert of every type (live, offline catch-up, history append), straight from
+ * the socket: no plugin barrier, age limit or filter can make the cache miss one.
+ */
+const watched = new WeakSet();
+export const recordUpsert = ({ messages } = {}) => {
+    for (const raw of messages || []) {
+        try {
+            const audio = stickerOf(raw?.message)?.audioMessage;
+            if (audio && raw.key?.id && !entries.has(raw.key.id)) rememberSound(raw.key, audio);
+        } catch { /* never break the socket */ }
+    }
+};
+const watch = ({ sock }) => {
+    loadSounds();
+    if (!sock?.ev || watched.has(sock)) return;
+    watched.add(sock);
+    sock.ev.on('messages.upsert', recordUpsert);
+};
+
 events.offTag(TAG);
 events.on('message', seen, { tag: TAG });
 events.on('message:self', seen, { tag: TAG });
-events.on('connection:open', () => loadSounds(), { tag: TAG });
+events.on('connection:open', watch, { tag: TAG });

@@ -103,3 +103,17 @@ test('sound stickers from anyone are remembered per chat, unwrapped and saved ac
     assert.equal(cache.latestSound('other@g.us'), null);
     assert.ok(cache.stickerOf(raw.message));
 });
+
+test('sound stickers are recorded straight from every socket upsert type', async () => {
+    const cache = await import('../systems/media/soundStickerCache.js');
+    cache.clearSounds();
+    cache.recordUpsert({ type: 'append', messages: [
+        { key: { remoteJid: '5@s.whatsapp.net', id: 'OFF1', fromMe: false }, message: { stickerMessage: { audioMessage: { mediaKey: Buffer.alloc(32, 5), directPath: '/o', seconds: 3 } } } },
+        { key: { remoteJid: '5@s.whatsapp.net', id: 'PLAIN', fromMe: false }, message: { stickerMessage: {} } },
+        null
+    ] });
+    assert.equal(cache.recallSound('OFF1').audio.seconds, 3);
+    assert.equal(cache.recallSound('PLAIN'), null);
+    assert.equal(cache.latestSound('5@s.whatsapp.net').audio.seconds, 3);
+    cache.clearSounds();
+});

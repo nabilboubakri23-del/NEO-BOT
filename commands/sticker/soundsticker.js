@@ -246,7 +246,7 @@ const soundToExtract = (m) => {
     const media = findMedia(m, ['sticker']) || lottieReply(m);
     if (media) {
         const sound = soundOf(media);
-        if (!sound) throw new UserError('That sticker has no sound.');
+        if (!sound) throw new UserError(`No sound found for that sticker. Either it is a normal sticker, or it was sent before the bot was online (WhatsApp drops the sound from reply copies, so the bot must have seen the original). Ask for it to be sent again, then reply with ${P()}ss extract`);
         return sound;
     }
     if (m.quoted) throw new UserError('Reply to a sound sticker to get its sound.');
