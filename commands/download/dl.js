@@ -12,7 +12,7 @@ import spotify from './spotify.js';
 /**
  * One command for any supported link: detects the platform and runs its downloader.
  *   .dl <link>        video (or the platform's default)
- *   .dl mp3 <link>    audio only (YouTube)
+ *   .dl mp3 <link>    audio only (YouTube, Instagram, Facebook)
  */
 
 const matches = (host, list) => list.some((h) => host === h || host.endsWith(`.${h}`));
@@ -22,7 +22,7 @@ export const detectPlatform = (link) => {
     let host;
     try { host = new URL(link).hostname.toLowerCase(); } catch { return null; }
     if (matches(host, YT_HOSTS)) return 'youtube';
-    if (matches(host, ['instagram.com'])) return 'instagram';
+    if (matches(host, ['instagram.com', 'instagr.am'])) return 'instagram';
     if (matches(host, ['facebook.com', 'fb.watch', 'fb.com'])) return 'facebook';
     if (matches(host, ['tiktok.com'])) return 'tiktok';
     if (matches(host, ['mediafire.com'])) return 'mediafire';
@@ -53,6 +53,7 @@ export default {
         const platform = detectPlatform(link);
         if (!platform) throw new UserError(box('DOWNLOAD', ['⚠️ Unsupported link.', `Supported: ${SUPPORTED.join(', ')}`]));
         if (platform === 'youtube') return downloadYoutube(sock, message, link, { audio });
-        return HANDLERS[platform].execute(sock, message, [link], { ...ctx, argsText: link });
+        const passArgs = audio && (platform === 'instagram' || platform === 'facebook') ? ['mp3', link] : [link];
+        return HANDLERS[platform].execute(sock, message, passArgs, { ...ctx, argsText: passArgs.join(' ') });
     }
 };

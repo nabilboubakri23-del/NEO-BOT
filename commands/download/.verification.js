@@ -53,9 +53,17 @@ export const verifyExtractorOnce = () => running ||= (async () => {
  return states;
 })();
 
-export const requireVerifiedExtractor = async platform => {
+/**
+ * Downloads are no longer locked by the start-up check (a failed sample used to block a
+ * platform until the next release). The check is now only a health signal in the logs;
+ * the real error of each download is shown to the user instead. Only a missing yt-dlp stops it.
+ */
+export const requireVerifiedExtractor = async () => {
+ if (!(await resolveYtDlp())) throw new UserError('⚠️ The downloader (yt-dlp) is not installed on this server. Termux: pip install yt-dlp');
+};
+
+/** Last start-up check result per platform (for status messages). */
+export const verificationState = async platform => {
  const document = await docStore.open('downloadVerification', () => ({}));
- if (process.env.RENDER && docStore.kind !== 'mongodb') throw new UserError('Server verification is unknown: durable storage unavailable.');
- const state = document.campaigns?.[REVISION]?.[platform]?.state;
- if (state !== 'verified') throw new UserError(`This platform is not enabled: server verification ${state === 'failed' ? 'failed' : 'is pending or unknown'}.`);
+ return document.campaigns?.[REVISION]?.[platform]?.state || 'unknown';
 };

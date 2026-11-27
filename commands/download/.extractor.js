@@ -93,7 +93,8 @@ export const classifyFailure = (stderr = '') => {
     const t = String(stderr);
     if (/confirm you.?re not a bot|Sign in to confirm/i.test(t)) return 'bot-check';
     if (/age.?restrict|confirm your age|inappropriate for some users/i.test(t)) return 'age';
-    if (/Private video|This video is private|login required|requires? (a )?log ?in/i.test(t)) return 'private';
+    if (/rate-limit reached or login required|login required|log ?in to|requires? (a )?log ?in|cookies/i.test(t) && !/Private/i.test(t)) return 'login';
+    if (/Private video|This video is private|private (post|account)/i.test(t)) return 'private';
     if (/members.only|Join this channel/i.test(t)) return 'members';
     if (/not available in your country|geo.?restrict/i.test(t)) return 'geo';
     if (/Video unavailable|has been removed|does not exist|404/i.test(t)) return 'unavailable';
@@ -104,7 +105,8 @@ export const classifyFailure = (stderr = '') => {
 export const FAILURE_TEXT = {
     'bot-check': '⚠️ YouTube is asking this server to prove it is not a bot. It works from a home connection (Termux), or after the owner sets YT_COOKIES on the server.',
     age: '⚠️ This video is age-restricted, so it cannot be downloaded without a signed-in account.',
-    private: '⚠️ This post is private or needs a login.',
+    private: '⚠️ This post is private.',
+    login: '⚠️ The platform wants a login from this server for this post. It usually works again later or from Termux; the owner can also set IG_SESSIONID (Instagram) or FB_COOKIES (Facebook).',
     members: '⚠️ This video is for channel members only.',
     geo: '⚠️ This video is not available in the server\'s country.',
     unavailable: '⚠️ This video is unavailable or was removed.',
@@ -112,30 +114,58 @@ export const FAILURE_TEXT = {
     unknown: '⚠️ Could not retrieve this public video. It may be unavailable or blocked by the platform.'
 };
 
-export const extractorArgs = (url, platform, proxy, audio = false, cookies = '') => [
+// Extractors each platform may use (share/redirect links resolve inside them).
+export const EXTRACTORS = {
+    youtube: 'youtube,youtube:tab',
+    instagram: 'instagram,instagram:story',
+    facebook: 'facebook,facebook:reel,FacebookRedirectURL,FacebookPluginsVideo'
+};
+
+export const extractorArgs = (url, platform, proxy, audio = false, cookies = '', post = false) => [
     '--ignore-config', '--no-plugin-dirs', '--no-remote-components', '--no-cache-dir',
-    '--no-playlist', '--skip-download', '--dump-single-json', '--no-warnings',
+    ...(post ? ['--ignore-no-formats-error', '--playlist-items', '1-10'] : ['--no-playlist']),
+    '--skip-download', '--dump-single-json', '--no-warnings',
     '--socket-timeout', '15', '--retries', '0', '--extractor-retries', '0',
     '--js-runtimes', `node:${process.execPath}`, '--proxy', proxy,
-    '--use-extractors', `${platform === 'youtube' ? 'youtube,youtube:tab' : platform},end`,
+    '--use-extractors', `${EXTRACTORS[platform] || platform},end`,
     '-f', formatFor(platform, audio),
     ...(cookies ? ['--cookies', cookies] : []),
     '--', url
 ];
 
-/**
- * Optional YouTube cookies from YT_COOKIES (Netscape cookies.txt text, raw or base64),
- * written to a private temp file for one run. Use a spare account: it can be flagged.
- */
-export const cookiesText = () => {
-    const raw = (process.env.YT_COOKIES || '').trim();
+const COOKIE_ENV = { youtube: 'YT_COOKIES', instagram: 'IG_COOKIES', facebook: 'FB_COOKIES' };
+
+/** Netscape cookies.txt text from an env value (raw or base64), or ''. */
+export const parseCookies = (value) => {
+    const raw = String(value || '').trim();
     if (!raw) return '';
     const text = /^[A-Za-z0-9+/=\s]+$/.test(raw) && !raw.includes('\t') ? Buffer.from(raw, 'base64').toString('utf8') : raw;
     return /\t/.test(text) ? (text.startsWith('# Netscape') ? text : `# Netscape HTTP Cookie File\n${text}`) : '';
 };
 
+/**
+ * Optional login cookies per platform, written to a private temp file for one run:
+ * YT_COOKIES / IG_COOKIES / FB_COOKIES (Netscape cookies.txt, raw or base64), or for
+ * Instagram just IG_SESSIONID. Use spare accounts: platforms can flag them.
+ */
+export const cookiesText = (platform = 'youtube') => {
+    const jar = parseCookies(process.env[COOKIE_ENV[platform]]);
+    if (jar) return jar;
+    const session = platform === 'instagram' ? (process.env.IG_SESSIONID || '').trim() : '';
+    if (!/^[A-Za-z0-9%:._-]{10,400}$/.test(session)) return '';
+    const expires = Math.floor(Date.now() / 1000) + 30 * 86_400;
+    return `# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t${expires}\tsessionid\t${session}\n`;
+};
+
 /** Bounded metadata-only extraction. No inherited credentials or configuration. */
-export const extractMedia = async (url, platform, { audio = false } = {}) => {
+export const extractMedia = async (url, platform, { audio = false } = {}) =>
+    toExtracted(await runExtractor(url, platform, { audio }), platform, audio);
+
+/** A whole post: single video, photo, or carousel (up to 10 items). */
+export const extractPost = async (url, platform, { audio = false } = {}) =>
+    toPostItems(await runExtractor(url, platform, { audio, post: true }), platform, audio);
+
+const runExtractor = async (url, platform, { audio = false, post = false } = {}) => {
     if (!INPUT_HOSTS[platform]) throw new UserError('Unsupported download platform.');
     const input = assertUrl(url, INPUT_HOSTS[platform]);
     if (active) throw new UserError('Another download is being prepared. Try again shortly.');
@@ -146,14 +176,14 @@ export const extractMedia = async (url, platform, { audio = false } = {}) => {
         if (!bin) throw new Error('yt-dlp missing');
         proxy = await startExtractorProxy(EXTRACTOR_HOSTS[platform]);
         let cookieFile = '';
-        const jar = platform === 'youtube' ? cookiesText() : '';
+        const jar = cookiesText(platform);
         if (jar) {
             cookieDir = await mkdtemp(path.join(os.tmpdir(), 'neo-ck-'));
             cookieFile = path.join(cookieDir, 'cookies.txt');
             await writeFile(cookieFile, jar, { mode: 0o600 });
         }
         const result = await new Promise((resolve, reject) => {
-            const proc = spawn(bin, extractorArgs(input, platform, proxy.url, audio, cookieFile), {
+            const proc = spawn(bin, extractorArgs(input, platform, proxy.url, audio, cookieFile, post), {
                 shell: false, detached: true, cwd: os.tmpdir(), env: { PATH: [path.dirname(bin), path.dirname(process.execPath), '/usr/bin', '/bin'].join(':'), HOME: '/nonexistent', LANG: 'C.UTF-8' },
                 stdio: ['ignore', 'pipe', 'pipe']
             });
@@ -171,7 +201,7 @@ export const extractMedia = async (url, platform, { audio = false } = {}) => {
                 try { resolve(JSON.parse(output)); } catch { reject(new Error('Invalid metadata')); }
             });
         });
-        return toExtracted(result, platform, audio);
+        return result;
     } catch (error) {
         if (error?.expose) throw error;
         const reason = classifyFailure(stderrTail);
@@ -183,6 +213,36 @@ export const extractMedia = async (url, platform, { audio = false } = {}) => {
         await proxy?.close(); active = false;
         if (cookieDir) rm(cookieDir, { recursive: true, force: true }).catch(() => {});
     }
+};
+
+const MAX_ITEMS = 10;
+
+/** Best picture of an entry (yt-dlp puts the largest in `thumbnail`), host-checked. */
+export const bestImage = (entry, platform) => {
+    const list = [entry?.thumbnail, ...[...(entry?.thumbnails || [])].reverse().map((t) => t?.url)].filter((u) => typeof u === 'string');
+    for (const url of list) {
+        try { return assertUrl(url, EXTRACTOR_HOSTS[platform]); } catch { /* next */ }
+    }
+    return '';
+};
+
+/** yt-dlp post JSON → { items: [{ type: 'video', ...extracted } | { type: 'image', url }], caption, uploader, total }. */
+export const toPostItems = (result, platform, audio = false) => {
+    if (!result || result.is_live) throw new UserError('⚠️ Live streams cannot be downloaded.');
+    const entries = result._type === 'playlist' ? (result.entries || []).filter(Boolean) : [result];
+    const items = [];
+    for (const entry of entries.slice(0, MAX_ITEMS)) {
+        if (entry.url || entry.requested_formats?.length) items.push({ type: 'video', ...toExtracted(entry, platform, audio) });
+        else if (!audio) { const url = bestImage(entry, platform); if (url) items.push({ type: 'image', url }); }
+    }
+    if (!items.length) throw new UserError(audio ? '⚠️ This post has no video, so there is no audio to send.' : '⚠️ Nothing downloadable was found in this post.');
+    const text = String(result.description || entries[0]?.description || result.title || '').trim();
+    return {
+        items,
+        total: entries.length,
+        uploader: String(result.uploader || result.channel || entries[0]?.uploader || '').slice(0, 60),
+        caption: /^(Video|Post|Photo) by /i.test(text) ? '' : text.slice(0, 300)
+    };
 };
 
 /** yt-dlp JSON → { url, parts[], title, ext, audio, duration }. Every media URL is host-checked. */

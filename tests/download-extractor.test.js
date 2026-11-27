@@ -28,7 +28,7 @@ test('extractor proxy rejects literals, wrong hosts, ports and private DNS',asyn
  }finally{await proxy.close()}
 });
 
-test('verification gate stays closed for unknown, checking and failed states', async () => {
+test('verification campaign starts pending without yt-dlp and never locks a platform', async () => {
  const store=(await import('../systems/database/docStore.js')).default;
  const {MemoryBackend}=await import('./helpers.js');
  await store.init(new MemoryBackend());
@@ -50,14 +50,14 @@ test('verification gate stays closed for unknown, checking and failed states', a
   assert.equal(result.status,0,result.stdout+result.stderr);
   assert.match(result.stdout,/setup pending/);
  }finally{await rm(temporary,{recursive:true,force:true});}
- await assert.rejects(()=>requireVerifiedExtractor('youtube'),/not enabled/);
+ // The start-up check no longer locks a platform; it only needs yt-dlp to exist.
  const doc=await store.open('downloadVerification');
- doc.campaigns={'yt-dlp-2026.11.23-adapter-3':{youtube:{state:'checking'}}};
- await assert.rejects(()=>requireVerifiedExtractor('youtube'),/not enabled/);
- doc.campaigns['yt-dlp-2026.11.23-adapter-3'].youtube.state='failed';
- await assert.rejects(()=>requireVerifiedExtractor('youtube'),/failed/);
- doc.campaigns['yt-dlp-2026.11.23-adapter-3'].youtube.state='verified';
- await requireVerifiedExtractor('youtube');
+ doc.campaigns={'yt-dlp-2026.11.23-adapter-3':{youtube:{state:'failed'}}};
+ const old=process.env.PATH, oldY=process.env.YTDLP_PATH;
+ try { process.env.PATH='/nonexistent-bin'; delete process.env.YTDLP_PATH;
+  const ex=await import('../commands/download/.extractor.js');
+  if (!(await ex.resolveYtDlp())) await assert.rejects(()=>requireVerifiedExtractor('youtube'),/not installed/);
+ } finally { process.env.PATH=old; if (oldY!==undefined) process.env.YTDLP_PATH=oldY; }
 });
 
 test('youtube video picks split H.264 + m4a with smaller fallbacks; audio picks m4a', async () => {
@@ -118,4 +118,42 @@ test('extractor failures are classified and YouTube cookies are read safely', as
  const a = extractorArgs('https://youtu.be/x', 'youtube', 'http://127.0.0.1:1', false, '/tmp/c.txt');
  assert.deepEqual(a.slice(a.indexOf('--cookies'), a.indexOf('--cookies') + 2), ['--cookies', '/tmp/c.txt']);
  assert.equal(a.at(-2), '--');
+});
+
+test('posts become ordered items: videos, photos (largest picture) and carousels up to 10', async () => {
+ const { toPostItems } = await import('../commands/download/.extractor.js');
+ const img = (n) => ({ thumbnail: `https://scontent-x.cdninstagram.com/${n}.jpg`, thumbnails: [{ url: 'https://evil.example/x.jpg' }] });
+ const post = toPostItems({ _type: 'playlist', uploader: 'NASA', description: 'Stars', entries: [img(1), { url: 'https://scontent.cdninstagram.com/v.mp4', ext: 'mp4', vcodec: 'h264', acodec: 'aac' }, img(3)] }, 'instagram');
+ assert.deepEqual(post.items.map((i) => i.type), ['image', 'video', 'image']);
+ assert.equal(post.items[0].url, 'https://scontent-x.cdninstagram.com/1.jpg');
+ assert.equal(post.uploader, 'NASA'); assert.equal(post.caption, 'Stars');
+ const many = toPostItems({ _type: 'playlist', entries: Array.from({ length: 14 }, (_, i) => img(i)) }, 'instagram');
+ assert.equal(many.items.length, 10); assert.equal(many.total, 14);
+ assert.throws(() => toPostItems({ thumbnail: 'https://evil.example/a.jpg' }, 'instagram'), /Nothing downloadable/);
+ assert.throws(() => toPostItems(img(1), 'instagram', true), /no video/);
+ assert.equal(toPostItems({ ...img(1), title: 'Video by nasa' }, 'instagram').caption, '');
+});
+
+test('instagram cookies come from IG_COOKIES or a bare IG_SESSIONID', async () => {
+ const { cookiesText } = await import('../commands/download/.extractor.js');
+ const saved = { s: process.env.IG_SESSIONID, c: process.env.IG_COOKIES };
+ try {
+  delete process.env.IG_COOKIES; delete process.env.IG_SESSIONID;
+  assert.equal(cookiesText('instagram'), '');
+  process.env.IG_SESSIONID = '1234567890%3Aabcdef%3A12';
+  assert.match(cookiesText('instagram'), /\.instagram\.com\tTRUE\t\/\tTRUE\t\d+\tsessionid\t1234567890%3Aabcdef%3A12/);
+  process.env.IG_SESSIONID = 'bad value\nwith newline';
+  assert.equal(cookiesText('instagram'), '');
+  assert.equal(cookiesText('facebook'), '');
+ } finally {
+  if (saved.s === undefined) delete process.env.IG_SESSIONID; else process.env.IG_SESSIONID = saved.s;
+  if (saved.c === undefined) delete process.env.IG_COOKIES; else process.env.IG_COOKIES = saved.c;
+ }
+});
+
+test('.ig / .fb read an optional mp3 word around the link', async () => {
+ const { parseArgs } = await import('../commands/download/.social.js');
+ assert.deepEqual(parseArgs(['mp3', 'https://x.com/a']), { audio: true, link: 'https://x.com/a' });
+ assert.deepEqual(parseArgs(['https://x.com/a', 'صوت']), { audio: true, link: 'https://x.com/a' });
+ assert.deepEqual(parseArgs(['https://x.com/a']), { audio: false, link: 'https://x.com/a' });
 });
