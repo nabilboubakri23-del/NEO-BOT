@@ -66,6 +66,7 @@ class DocStore {
     constructor() {
         this.backend = null;
         this.docs = new Map(); // name → { data, timer, dirty }
+        this.opening = new Map(); // name → Promise of a first load in progress
         this.ready = null;
     }
 
@@ -93,15 +94,23 @@ class DocStore {
     async open(name, defaults = () => ({})) {
         await this.init();
         if (this.docs.has(name)) return this.docs.get(name).data;
-        let data;
-        try {
-            data = await this.backend.read(name);
-        } catch (error) {
-            log.error(`Failed to read "${name}": ${describeError(error)}`);
+        // Concurrent first opens share one load, so every caller gets the same live object
+        // (otherwise a later load replaced the entry and earlier callers' changes were lost).
+        if (!this.opening.has(name)) {
+            const loading = (async () => {
+                let data;
+                try {
+                    data = await this.backend.read(name);
+                } catch (error) {
+                    log.error(`Failed to read "${name}": ${describeError(error)}`);
+                }
+                const entry = { data: data ?? defaults(), timer: null, dirty: false };
+                this.docs.set(name, entry);
+                return entry.data;
+            })().finally(() => this.opening.delete(name));
+            this.opening.set(name, loading);
         }
-        const entry = { data: data ?? defaults(), timer: null, dirty: false };
-        this.docs.set(name, entry);
-        return entry.data;
+        return this.opening.get(name);
     }
 
     /** Marks a document as changed; it is written after a short delay. */

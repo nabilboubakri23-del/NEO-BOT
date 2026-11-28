@@ -58,6 +58,16 @@ class SessionManager {
         return mutex;
     }
 
+    /** Runs `fn` under the entry's lock, then drops the idle lock so the map cannot grow forever. */
+    async #exclusive(key, fn) {
+        const mutex = this.#lock(key);
+        try {
+            return await mutex.runExclusive(fn);
+        } finally {
+            if (!mutex.isLocked() && this.locks.get(key) === mutex) this.locks.delete(key);
+        }
+    }
+
     #key(name) {
         return hashName(name);
     }
@@ -76,13 +86,13 @@ class SessionManager {
         await this.#ensureReady();
         const key = this.#key(name);
         const payload = encrypt(JSON.stringify(value, BufferJSON.replacer), name);
-        await this.#lock(key).runExclusive(() => this.store.set(key, payload, { type: entryCategory(name) }));
+        await this.#exclusive(key, () => this.store.set(key, payload, { type: entryCategory(name) }));
     }
 
     async #read(name) {
         await this.#ensureReady();
         const key = this.#key(name);
-        return this.#lock(key).runExclusive(async () => {
+        return this.#exclusive(key, async () => {
             const payload = await this.store.get(key);
             if (!payload) return null;
             try {
@@ -99,7 +109,7 @@ class SessionManager {
     async #remove(name) {
         await this.#ensureReady();
         const key = this.#key(name);
-        await this.#lock(key).runExclusive(() => this.store.delete(key));
+        await this.#exclusive(key, () => this.store.delete(key));
     }
 
     /** Returns true when stored credentials represent a completed WhatsApp link. */
@@ -167,8 +177,7 @@ class SessionManager {
         if (typeof this.store.listStale !== 'function') return 0;
         const keys = await this.store.listStale({ types: [...DISPOSABLE_CATEGORIES], before: new Date(Date.now() - minAgeMs) });
         for (const key of keys) {
-            await this.#lock(key).runExclusive(() => this.store.delete(key));
-            this.locks.delete(key);
+            await this.#exclusive(key, () => this.store.delete(key));
         }
         return keys.length;
     }

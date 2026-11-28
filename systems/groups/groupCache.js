@@ -32,21 +32,28 @@ export const getGroup = async (sock, jid) => {
     const request = sock
         .groupMetadata(jid)
         .then((data) => {
-            cache.set(jid, { data, at: Date.now() });
-            if (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value);
+            // Invalidated while fetching (admin change, join, leave): the answer may predate it.
+            if (pending.get(jid) === request) {
+                cache.set(jid, { data, at: Date.now() });
+                if (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value);
+            }
             return data;
         })
         .catch((error) => {
             log.warn(`Group metadata unavailable: ${describeError(error)}`);
             return null;
         })
-        .finally(() => pending.delete(jid));
+        .finally(() => {
+            if (pending.get(jid) === request) pending.delete(jid);
+        });
     pending.set(jid, request);
     return request;
 };
 
 export const invalidateGroup = (jid) => {
-    if (jid) cache.delete(jid);
+    if (!jid) return;
+    cache.delete(jid);
+    pending.delete(jid);
 };
 
 export const clearGroups = () => cache.clear();

@@ -50,3 +50,15 @@ test('cleanup removes only stale disposable entries and keeps creds/pre-keys', a
     assert.ok((await state.keys.get('pre-key', ['1']))['1']);
     await sm.close();
 });
+
+test('session locks are released after use (no unbounded growth)', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'neo-sess-'));
+    const sm = new SessionManager(new FileStore(dir));
+    const { state } = await sm.loadAuthState();
+    const ids = Array.from({ length: 50 }, (_, i) => `u${i}.0`);
+    await state.keys.set({ session: Object.fromEntries(ids.map((id) => [id, { a: 1 }])) });
+    const read = await state.keys.get('session', [...ids, 'missing.0']);
+    assert.deepEqual(read['u7.0'], { a: 1 });
+    assert.equal(read['missing.0'], null);
+    assert.equal(sm.locks.size, 0);
+});
